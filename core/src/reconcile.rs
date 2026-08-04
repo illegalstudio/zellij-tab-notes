@@ -39,9 +39,10 @@ impl Reconciler {
             let clean = strip_icon(&tab.name, &self.icon).to_string();
 
             if let Some(previous) = self.known.get(&tab.id) {
-                if previous != &clean && notes.remove(previous) {
-                    actions.push(Action::MoveNote { from: previous.clone(), to: clean.clone() });
+                if previous != &clean && notes.contains(previous) && !notes.contains(&clean) {
+                    notes.remove(previous);
                     notes.insert(clean.clone());
+                    actions.push(Action::MoveNote { from: previous.clone(), to: clean.clone() });
                 }
             }
             self.known.insert(tab.id, clean.clone());
@@ -168,5 +169,35 @@ mod tests {
         r.reconcile(&[], &mut n);
         // Tab id 1 is reused by a brand new tab named "b": no note must be moved.
         assert_eq!(r.reconcile(&[tab(1, 0, "b")], &mut n), vec![]);
+    }
+
+    #[test]
+    fn does_not_move_a_note_onto_another_open_tabs_note() {
+        let mut r = Reconciler::new(ICON);
+        let mut n = notes(&["old", "y"]);
+        // Settle with two tabs and two notes
+        r.reconcile(&[tab(1, 0, "old"), tab(2, 1, "y")], &mut n);
+        // Rename tab 1 from "old" to "y" — destination has a note
+        let actions = r.reconcile(&[tab(1, 0, "y"), tab(2, 1, "📝 y")], &mut n);
+        // Should not emit MoveNote, but may emit RenameTab
+        let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
+        assert!(!has_move_note, "must not emit MoveNote when destination has a note");
+        // Note set must be unchanged
+        assert_eq!(n, notes(&["old", "y"]), "both notes must survive");
+    }
+
+    #[test]
+    fn does_not_move_a_note_onto_an_orphan_note_file() {
+        let mut r = Reconciler::new(ICON);
+        let mut n = notes(&["old", "z"]);
+        // Settle with one tab; "z" has no tab
+        r.reconcile(&[tab(1, 0, "old")], &mut n);
+        // Rename tab 1 from "old" to "z" — destination has an orphan note
+        let actions = r.reconcile(&[tab(1, 0, "z")], &mut n);
+        // Should not emit MoveNote
+        let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
+        assert!(!has_move_note, "must not emit MoveNote when destination has an orphan note");
+        // Note set must be unchanged
+        assert_eq!(n, notes(&["old", "z"]), "both notes must survive");
     }
 }
