@@ -191,8 +191,8 @@ impl Watcher {
             return false;
         };
         match pipe_message.name.as_str() {
-            "notes-changed" => self.refresh(),
-            "edit-note" => {
+            "tab-notes:notes-changed" => self.refresh(),
+            "tab-notes:edit-note" => {
                 let Some(tab) = pipe_message.payload else {
                     return false;
                 };

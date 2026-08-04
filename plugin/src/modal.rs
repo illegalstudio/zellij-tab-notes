@@ -12,7 +12,6 @@ pub struct Modal {
     content: Option<String>,
     status: Option<String>,
     scroll: usize,
-    watcher_id: Option<u32>,
     confirming_delete: bool,
 }
 
@@ -25,7 +24,6 @@ impl Modal {
             content: None,
             status: None,
             scroll: 0,
-            watcher_id: None,
             confirming_delete: false,
         }
     }
@@ -51,16 +49,6 @@ impl Modal {
                 };
                 if self.session.as_deref() != Some(current.name.as_str()) {
                     self.session = Some(current.name.clone());
-                    // The watcher is addressed by plugin id, discovered from the session's
-                    // plugin list: no need to duplicate its URL in the modal's configuration.
-                    self.watcher_id = current
-                        .plugins
-                        .iter()
-                        .find(|(_, info)| {
-                            info.configuration.get("role").map(String::as_str) != Some("modal")
-                                && info.location.contains("tab-notes")
-                        })
-                        .map(|(id, _)| *id);
                     // Note-scoped state must not survive a change of which note is
                     // shown. `content` included: while the new read is in flight it
                     // would otherwise answer `has_note()` about the previous note
@@ -109,7 +97,7 @@ impl Modal {
                         if exit_code == Some(0) {
                             self.content = None;
                             self.status = Some("note deleted".to_string());
-                            self.send_to_watcher("notes-changed", None);
+                            Self::send_to_watcher("tab-notes:notes-changed", None);
                         } else {
                             eprintln!(
                                 "tab-notes: delete failed: {}",
@@ -175,7 +163,7 @@ impl Modal {
             // Without a tab name there is nothing to open: the watcher drops a
             // payload-less `edit-note` silently, so the modal would just close.
             BareKey::Char('e') if self.tab.is_some() => {
-                self.send_to_watcher("edit-note", self.tab.clone());
+                Self::send_to_watcher("tab-notes:edit-note", self.tab.clone());
                 close_self();
                 false
             }
@@ -196,12 +184,17 @@ impl Modal {
         }
     }
 
-    fn send_to_watcher(&self, name: &str, payload: Option<String>) {
-        let Some(watcher_id) = self.watcher_id else {
-            eprintln!("tab-notes: no watcher instance found, is it in load_plugins?");
-            return;
-        };
-        let mut message = MessageToPlugin::new(name).with_destination_plugin_id(watcher_id);
+    /// Broadcasts to every plugin in the session, which is how the background watcher is
+    /// reached.
+    ///
+    /// The watcher's plugin id cannot be discovered: `SessionInfo.plugins` is empty in the
+    /// `SessionUpdate` delivered to plugins, so an id-addressed message had nowhere to go and
+    /// the modal closed doing nothing. A `MessageToPlugin` carrying neither a url nor a
+    /// destination id is routed to all plugin ids, headless ones included. Other plugins
+    /// ignore a pipe name they do not know, and the modal ignores pipes entirely, so only the
+    /// watcher acts on it. Names are prefixed because every plugin now sees them.
+    fn send_to_watcher(name: &str, payload: Option<String>) {
+        let mut message = MessageToPlugin::new(name);
         if let Some(payload) = payload {
             message = message.with_payload(payload);
         }
