@@ -1,0 +1,8 @@
+[package]
+name = "tab-notes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zellij-tile = "0.44.3"
+tab-notes-core = { path = "../core" }
