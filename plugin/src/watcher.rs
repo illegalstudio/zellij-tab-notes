@@ -14,8 +14,8 @@ pub struct Watcher {
     notes: BTreeSet<String>,
     /// Whether a listing has ever completed. Until it has, `notes` is empty because
     /// nothing has been read yet — not because no tab has a note — and acting on it
-    /// would strip the icon off every decorated tab and orphan the note of any tab
-    /// renamed inside that window.
+    /// would strip the icon off every tab a previous session had decorated, only to
+    /// put it back once the listing lands.
     listed_once: bool,
 }
 
@@ -156,8 +156,8 @@ impl Watcher {
 
     fn apply(&mut self) {
         // An empty `notes` before the first listing means "not known yet", not "no
-        // notes": reconciling against it would strip every icon and orphan the note
-        // of any tab renamed in that window.
+        // notes": reconciling against it would strip every icon, then restore it when
+        // the listing arrives.
         if !self.listed_once {
             return;
         }
