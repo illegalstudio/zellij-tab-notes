@@ -11,9 +11,9 @@ pub struct Config {
 
 impl Config {
     pub fn from_map(configuration: &BTreeMap<String, String>) -> Result<Config, String> {
-        let notes_dir = configuration
-            .get("notes_dir")
-            .ok_or_else(|| "tab-notes: missing required plugin configuration `notes_dir`".to_string())?;
+        let notes_dir = configuration.get("notes_dir").ok_or_else(|| {
+            "tab-notes: missing required plugin configuration `notes_dir`".to_string()
+        })?;
         if !notes_dir.starts_with('/') {
             return Err(format!(
                 "tab-notes: `notes_dir` must be an absolute path (got `{notes_dir}`). \
@@ -35,7 +35,10 @@ mod tests {
     use super::*;
 
     fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]

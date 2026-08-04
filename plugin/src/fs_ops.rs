@@ -32,7 +32,10 @@ pub fn op_of(context: &BTreeMap<String, String>) -> Option<&str> {
 }
 
 pub fn ensure_dir(dir: &Path) {
-    run_command(&["mkdir", "-p", &dir.to_string_lossy()], context(OP_ENSURE_DIR));
+    run_command(
+        &["mkdir", "-p", &dir.to_string_lossy()],
+        context(OP_ENSURE_DIR),
+    );
 }
 
 /// Lists the notes that exist AND are non-empty, in one command.
@@ -56,7 +59,10 @@ pub fn list_notes(dir: &Path) {
 }
 
 pub fn read_note(path: &Path) {
-    run_command(&["head", "-c", "65536", &path.to_string_lossy()], context(OP_READ));
+    run_command(
+        &["head", "-c", "65536", &path.to_string_lossy()],
+        context(OP_READ),
+    );
 }
 
 pub fn delete_note(path: &Path) {
@@ -78,7 +84,15 @@ pub fn move_note(from: &Path, to: &Path) {
 /// Deletes the file only if it is empty. `find -maxdepth 0` targets the file itself.
 pub fn delete_if_empty(path: &Path) {
     run_command(
-        &["find", &path.to_string_lossy(), "-maxdepth", "0", "-size", "0c", "-delete"],
+        &[
+            "find",
+            &path.to_string_lossy(),
+            "-maxdepth",
+            "0",
+            "-size",
+            "0c",
+            "-delete",
+        ],
         context(OP_CLEANUP),
     );
 }

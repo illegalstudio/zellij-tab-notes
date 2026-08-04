@@ -1,6 +1,6 @@
-use tab_notes_core::config::Config;
 use crate::fs_ops;
 use std::collections::BTreeSet;
+use tab_notes_core::config::Config;
 use tab_notes_core::listing::parse_note_listing;
 use tab_notes_core::paths::{note_path, note_path_from_key, session_dir};
 use tab_notes_core::reconcile::{Action, Reconciler, TabView};
@@ -21,7 +21,10 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(config: Result<Config, String>) -> Self {
-        let reconciler = config.as_ref().ok().map(|c| Reconciler::new(c.icon.clone()));
+        let reconciler = config
+            .as_ref()
+            .ok()
+            .map(|c| Reconciler::new(c.icon.clone()));
         Self {
             config,
             reconciler,

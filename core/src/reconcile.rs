@@ -46,7 +46,10 @@ pub struct Reconciler {
 
 impl Reconciler {
     pub fn new(icon: impl Into<String>) -> Self {
-        Self { icon: icon.into(), known: BTreeMap::new() }
+        Self {
+            icon: icon.into(),
+            known: BTreeMap::new(),
+        }
     }
 
     pub fn reconcile(&mut self, tabs: &[TabView], notes: &mut BTreeSet<String>) -> Vec<Action> {
@@ -65,18 +68,25 @@ impl Reconciler {
                 if previous != &key && notes.contains(previous) && !notes.contains(&key) {
                     notes.remove(previous);
                     notes.insert(key.clone());
-                    actions.push(Action::MoveNote { from: previous.clone(), to: key.clone() });
+                    actions.push(Action::MoveNote {
+                        from: previous.clone(),
+                        to: key.clone(),
+                    });
                 }
             }
             self.known.insert(tab.id, key.clone());
 
             let expected = decorate(&clean, &self.icon, notes.contains(&key));
             if expected != tab.name {
-                actions.push(Action::RenameTab { id: tab.id, name: expected });
+                actions.push(Action::RenameTab {
+                    id: tab.id,
+                    name: expected,
+                });
             }
         }
 
-        self.known.retain(|id, _| tabs.iter().any(|tab| tab.id == *id));
+        self.known
+            .retain(|id, _| tabs.iter().any(|tab| tab.id == *id));
         actions
     }
 }
@@ -88,7 +98,10 @@ mod tests {
     const ICON: &str = "📝";
 
     fn tab(id: usize, name: &str) -> TabView {
-        TabView { id, name: name.to_string() }
+        TabView {
+            id,
+            name: name.to_string(),
+        }
     }
 
     fn notes(names: &[&str]) -> BTreeSet<String> {
@@ -102,7 +115,10 @@ mod tests {
         let actions = r.reconcile(&[tab(1, "dotfiles")], &mut n);
         assert_eq!(
             actions,
-            vec![Action::RenameTab { id: 1, name: "📝 dotfiles".to_string() }]
+            vec![Action::RenameTab {
+                id: 1,
+                name: "📝 dotfiles".to_string()
+            }]
         );
     }
 
@@ -120,7 +136,10 @@ mod tests {
         let actions = r.reconcile(&[tab(1, "📝 dotfiles")], &mut n);
         assert_eq!(
             actions,
-            vec![Action::RenameTab { id: 1, name: "dotfiles".to_string() }]
+            vec![Action::RenameTab {
+                id: 1,
+                name: "dotfiles".to_string()
+            }]
         );
     }
 
@@ -146,8 +165,14 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                Action::MoveNote { from: "old".to_string(), to: "new".to_string() },
-                Action::RenameTab { id: 7, name: "📝 new".to_string() },
+                Action::MoveNote {
+                    from: "old".to_string(),
+                    to: "new".to_string()
+                },
+                Action::RenameTab {
+                    id: 7,
+                    name: "📝 new".to_string()
+                },
             ]
         );
         assert_eq!(n, notes(&["new"]), "the note set must be updated in place");
@@ -161,7 +186,10 @@ mod tests {
         let actions = r.reconcile(&[tab(7, "📝 new")], &mut n);
         assert_eq!(
             actions,
-            vec![Action::MoveNote { from: "old".to_string(), to: "new".to_string() }],
+            vec![Action::MoveNote {
+                from: "old".to_string(),
+                to: "new".to_string()
+            }],
             "the name is already correct, only the file moves"
         );
     }
@@ -181,7 +209,10 @@ mod tests {
         let actions = r.reconcile(&[tab(11, "a"), tab(22, "b")], &mut n);
         assert_eq!(
             actions,
-            vec![Action::RenameTab { id: 22, name: "📝 b".to_string() }],
+            vec![Action::RenameTab {
+                id: 22,
+                name: "📝 b".to_string()
+            }],
             "the action must carry the tab's own id, never its display position"
         );
     }
@@ -216,7 +247,10 @@ mod tests {
         let actions = r.reconcile(&[tab(1, "y"), tab(2, "📝 y")], &mut n);
         // Should not emit MoveNote, but may emit RenameTab
         let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
-        assert!(!has_move_note, "must not emit MoveNote when destination has a note");
+        assert!(
+            !has_move_note,
+            "must not emit MoveNote when destination has a note"
+        );
         // Note set must be unchanged
         assert_eq!(n, notes(&["old", "y"]), "both notes must survive");
     }
@@ -231,7 +265,10 @@ mod tests {
         let actions = r.reconcile(&[tab(1, "z")], &mut n);
         // Should not emit MoveNote
         let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
-        assert!(!has_move_note, "must not emit MoveNote when destination has an orphan note");
+        assert!(
+            !has_move_note,
+            "must not emit MoveNote when destination has an orphan note"
+        );
         // Note set must be unchanged
         assert_eq!(n, notes(&["old", "z"]), "both notes must survive");
     }
@@ -244,7 +281,10 @@ mod tests {
         let actions = r.reconcile(&[tab(1, "feature/login")], &mut n);
         assert_eq!(
             actions,
-            vec![Action::RenameTab { id: 1, name: "📝 feature/login".to_string() }],
+            vec![Action::RenameTab {
+                id: 1,
+                name: "📝 feature/login".to_string()
+            }],
             "the icon must follow the note key, the displayed name stays unsanitized"
         );
     }
@@ -257,8 +297,15 @@ mod tests {
         // "notes/todo" sanitizes to "notes-todo", which already has a note file.
         let actions = r.reconcile(&[tab(1, "notes/todo")], &mut n);
         let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
-        assert!(!has_move_note, "the guard must compare keys, not raw display names");
-        assert_eq!(n, notes(&["scratch", "notes-todo"]), "both notes must survive");
+        assert!(
+            !has_move_note,
+            "the guard must compare keys, not raw display names"
+        );
+        assert_eq!(
+            n,
+            notes(&["scratch", "notes-todo"]),
+            "both notes must survive"
+        );
     }
 
     #[test]
@@ -270,8 +317,14 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                Action::MoveNote { from: "old".to_string(), to: "feature-login".to_string() },
-                Action::RenameTab { id: 7, name: "📝 feature/login".to_string() },
+                Action::MoveNote {
+                    from: "old".to_string(),
+                    to: "feature-login".to_string()
+                },
+                Action::RenameTab {
+                    id: 7,
+                    name: "📝 feature/login".to_string()
+                },
             ]
         );
         assert_eq!(n, notes(&["feature-login"]));

@@ -133,7 +133,10 @@ mod tests {
         let once = sanitize_tab_name(&input);
         let twice = sanitize_tab_name(&once);
         assert_eq!(once.chars().count(), MAX_NAME_LEN);
-        assert_ne!(once, twice, "double sanitization must be assumed to change the key");
+        assert_ne!(
+            once, twice,
+            "double sanitization must be assumed to change the key"
+        );
     }
 
     #[test]

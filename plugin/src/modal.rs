@@ -1,5 +1,5 @@
-use tab_notes_core::config::Config;
 use crate::fs_ops;
+use tab_notes_core::config::Config;
 use tab_notes_core::icon::strip_icon;
 use tab_notes_core::paths::note_path;
 use tab_notes_core::viewport::{clamp_scroll, is_heading, wrap};
@@ -136,9 +136,11 @@ impl Modal {
     }
 
     fn read_note(&mut self) {
-        let (Ok(config), Some(session), Some(tab)) =
-            (self.config.as_ref(), self.session.as_ref(), self.tab.as_ref())
-        else {
+        let (Ok(config), Some(session), Some(tab)) = (
+            self.config.as_ref(),
+            self.session.as_ref(),
+            self.tab.as_ref(),
+        ) else {
             return;
         };
         fs_ops::read_note(&note_path(&config.notes_dir, session, tab));
@@ -207,9 +209,11 @@ impl Modal {
     }
 
     fn delete_note(&mut self) {
-        let (Ok(config), Some(session), Some(tab)) =
-            (self.config.as_ref(), self.session.as_ref(), self.tab.as_ref())
-        else {
+        let (Ok(config), Some(session), Some(tab)) = (
+            self.config.as_ref(),
+            self.session.as_ref(),
+            self.tab.as_ref(),
+        ) else {
             return;
         };
         // The modal performs its own destructive operation so that deleting still works
@@ -259,6 +263,12 @@ impl Modal {
             (Some(status), _) => status.clone(),
             _ => "e edit · d delete · j/k scroll · Esc close".to_string(),
         };
-        print_text_with_coordinates(Text::new(footer).dim_all(), 0, rows.saturating_sub(1), Some(cols), None);
+        print_text_with_coordinates(
+            Text::new(footer).dim_all(),
+            0,
+            rows.saturating_sub(1),
+            Some(cols),
+            None,
+        );
     }
 }
