@@ -12,8 +12,12 @@ Then see `docs/superpowers/specs/2026-08-03-zellij-tab-notes-design.md` for the
 
 ## Usage
 
-`Alt m` opens the note for the current tab. `e` edits it in `$EDITOR`, `d` deletes it,
-`j`/`k` scroll, `Esc` closes.
+`Ctrl t` then `a` (annotate) opens the note for the current tab. `e` edits it in
+`$EDITOR`, `d` deletes it, `j`/`k` scroll, `Esc` closes.
+
+The binding must end with `SwitchToMode "normal"`. Zellij routes keys to the active
+mode's bindings, so a client left in tab mode never delivers `e`, `d` or `j` to the
+modal.
 
 ## Manual test checklist
 
@@ -21,7 +25,7 @@ Run once after any change to the watcher or the modal.
 
 1. Fresh session, tab with an existing non-empty note file → the icon appears at startup.
 2. Tab with an empty note file → no icon.
-3. `Alt m` on a tab with no note → placeholder text; `e` opens nvim on a new file.
+3. `Ctrl t` `a` on a tab with no note → placeholder text; `e` opens nvim on a new file.
 4. Write content, `:wq` → the icon appears.
 5. Open nvim on the note, delete all content, `:wq` → the icon disappears and the file
    is gone.
