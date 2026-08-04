@@ -61,6 +61,9 @@ impl Modal {
                                 && info.location.contains("tab-notes")
                         })
                         .map(|(id, _)| *id);
+                    // Note-scoped state must not survive a change of which note is shown.
+                    self.confirming_delete = false;
+                    self.status = None;
                     self.read_note();
                 }
                 true
@@ -73,6 +76,9 @@ impl Modal {
                 if self.tab.as_deref() != Some(clean.as_str()) {
                     self.tab = Some(clean);
                     self.scroll = 0;
+                    // Note-scoped state must not survive a change of which note is shown.
+                    self.confirming_delete = false;
+                    self.status = None;
                     self.read_note();
                 }
                 true
