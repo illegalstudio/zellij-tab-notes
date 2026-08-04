@@ -17,7 +17,7 @@ pub fn sanitize_tab_name(name: &str) -> String {
         })
         .collect();
     let truncated: String = replaced.trim().chars().take(MAX_NAME_LEN).collect();
-    match truncated.trim() {
+    match truncated.as_str() {
         "" | "." | ".." => "_".to_string(),
         other => other.to_string(),
     }
@@ -82,5 +82,19 @@ mod tests {
             session_dir(Path::new("/notes"), "dotfiles"),
             PathBuf::from("/notes/dotfiles")
         );
+    }
+
+    #[test]
+    fn maintains_max_length_with_trailing_whitespace() {
+        let input = "x".repeat(199) + " " + &"y".repeat(300);
+        let result = sanitize_tab_name(&input);
+        assert_eq!(result.chars().count(), MAX_NAME_LEN);
+    }
+
+    #[test]
+    fn distinguishes_dot_with_padding_from_dot_alone() {
+        let input = ".".to_string() + &" ".repeat(199) + &"z".repeat(50);
+        let result = sanitize_tab_name(&input);
+        assert_ne!(result, sanitize_tab_name("."));
     }
 }
