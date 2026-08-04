@@ -34,6 +34,7 @@ impl Modal {
             EventType::SessionUpdate,
             EventType::TabUpdate,
             EventType::RunCommandResult,
+            EventType::EditPaneExited,
             EventType::Key,
         ]);
     }
@@ -107,8 +108,31 @@ impl Modal {
                         }
                         true
                     }
+                    // The post-edit cleanup finished: re-read so the preview shows what
+                    // was just written, and tell the watcher in case the note came into
+                    // existence or stopped existing.
+                    Some(fs_ops::OP_CLEANUP) => {
+                        self.read_note();
+                        Self::send_to_watcher("tab-notes:notes-changed", None);
+                        true
+                    }
                     _ => false,
                 }
+            }
+            // Only ever delivered for a pane this plugin opened, but the op tag keeps that
+            // true even if the modal grows another kind of pane later.
+            Event::EditPaneExited(_pane_id, _exit_code, context) => {
+                if fs_ops::op_of(&context) != Some(fs_ops::OP_EDIT) {
+                    return false;
+                }
+                let (Some(session), Some(tab)) = (self.session.as_ref(), self.tab.as_ref()) else {
+                    return false;
+                };
+                // An aborted edit leaves a zero-byte file behind; remove it so it never
+                // counts as a note. Re-reading is chained to that command's result.
+                fs_ops::delete_if_empty(&note_path(&config.notes_dir, session, tab));
+                self.status = None;
+                true
             }
             Event::Key(key) => self.on_key(key),
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
@@ -132,6 +156,22 @@ impl Modal {
             return;
         };
         fs_ops::read_note(&note_path(&config.notes_dir, session, tab));
+    }
+
+    fn open_editor(&mut self) {
+        let (Ok(config), Some(session), Some(tab)) = (
+            self.config.as_ref(),
+            self.session.as_ref(),
+            self.tab.as_ref(),
+        ) else {
+            return;
+        };
+        open_file_floating(
+            FileToOpen::new(note_path(&config.notes_dir, session, tab)),
+            None,
+            fs_ops::context_with_tab(fs_ops::OP_EDIT, tab),
+        );
+        self.status = Some("editing in $EDITOR…".to_string());
     }
 
     fn has_note(&self) -> bool {
@@ -162,10 +202,12 @@ impl Modal {
             }
             // Without a tab name there is nothing to open: the watcher drops a
             // payload-less `edit-note` silently, so the modal would just close.
+            // The modal opens the editor itself and stays alive behind it. Zellij delivers
+            // `EditPaneExited` only to the plugin that opened the file, and that event is
+            // what lets the modal show the edited note instead of disappearing.
             BareKey::Char('e') if self.tab.is_some() => {
-                Self::send_to_watcher("tab-notes:edit-note", self.tab.clone());
-                close_self();
-                false
+                self.open_editor();
+                true
             }
             BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
                 self.confirming_delete = true;

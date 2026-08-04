@@ -2,7 +2,7 @@ use crate::fs_ops;
 use std::collections::BTreeSet;
 use tab_notes_core::config::Config;
 use tab_notes_core::listing::parse_note_listing;
-use tab_notes_core::paths::{note_path, note_path_from_key, session_dir};
+use tab_notes_core::paths::{note_path_from_key, session_dir};
 use tab_notes_core::reconcile::{Action, Reconciler, TabView};
 use zellij_tile::prelude::*;
 
@@ -41,7 +41,6 @@ impl Watcher {
             EventType::SessionUpdate,
             EventType::TabUpdate,
             EventType::RunCommandResult,
-            EventType::EditPaneExited,
         ]);
     }
 
@@ -87,19 +86,6 @@ impl Watcher {
                 // every guard in this struct already checks it.
                 eprintln!("tab-notes: permissions denied, the watcher will stay inert");
                 self.config = Err("tab-notes: permissions denied".to_string());
-            }
-            Event::EditPaneExited(_pane_id, _exit_code, context) => {
-                if fs_ops::op_of(&context) != Some(fs_ops::OP_EDIT) {
-                    return false;
-                }
-                let (Some(tab), Some(session)) =
-                    (context.get(fs_ops::TAB_KEY), self.session.clone())
-                else {
-                    return false;
-                };
-                // An aborted edit leaves a zero-byte file behind; remove it so it never
-                // counts as a note. The refresh is chained to this command's result.
-                fs_ops::delete_if_empty(&note_path(&config.notes_dir, &session, tab));
             }
             _ => {}
         }
@@ -183,27 +169,16 @@ impl Watcher {
         }
     }
 
+    /// The modal owns the editor, not the watcher: `EditPaneExited` is delivered only to
+    /// the plugin that opened the file, and the modal needs it to show the edited note
+    /// again instead of vanishing. All the watcher still wants to hear is that the notes
+    /// directory changed.
     pub fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        let Ok(config) = self.config.clone() else {
+        if self.config.is_err() || self.session.is_none() {
             return false;
-        };
-        let Some(session) = self.session.clone() else {
-            return false;
-        };
-        match pipe_message.name.as_str() {
-            "tab-notes:notes-changed" => self.refresh(),
-            "tab-notes:edit-note" => {
-                let Some(tab) = pipe_message.payload else {
-                    return false;
-                };
-                let path = note_path(&config.notes_dir, &session, &tab);
-                open_file_floating(
-                    FileToOpen::new(path),
-                    None,
-                    fs_ops::context_with_tab(fs_ops::OP_EDIT, &tab),
-                );
-            }
-            _ => {}
+        }
+        if pipe_message.name == "tab-notes:notes-changed" {
+            self.refresh();
         }
         false
     }
