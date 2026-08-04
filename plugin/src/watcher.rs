@@ -54,7 +54,6 @@ impl Watcher {
                     .iter()
                     .map(|tab| TabView {
                         id: tab.tab_id,
-                        position: tab.position,
                         name: tab.name.clone(),
                     })
                     .collect();
@@ -140,7 +139,9 @@ impl Watcher {
         };
         for action in reconciler.reconcile(&self.tabs, &mut self.notes) {
             match action {
-                Action::RenameTab { position, name } => rename_tab(position, &name),
+                // `rename_tab` takes a 1-based position and subtracts one internally;
+                // `rename_tab_with_id` looks the tab up directly, with no arithmetic.
+                Action::RenameTab { id, name } => rename_tab_with_id(id as u64, &name),
                 Action::MoveNote { from, to } => fs_ops::move_note(
                     &note_path(&config.notes_dir, session, &from),
                     &note_path(&config.notes_dir, session, &to),
