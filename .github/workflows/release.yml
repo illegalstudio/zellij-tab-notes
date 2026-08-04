@@ -14,49 +14,85 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth 0 because this job also needs main, not just the tagged commit.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install the pinned toolchain
         run: rustup show
 
       - uses: Swatinem/rust-cache@v2
 
-      # Fail before building rather than shipping a wasm whose version does not
-      # match the tag people will refer to.
-      - name: The tag must match the crate version
+      - name: Derive the version from the tag
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
-          crate=$(grep -m1 '^version' plugin/Cargo.toml | cut -d'"' -f2)
-          if [ "$tag" != "$crate" ]; then
-            echo "tag ${GITHUB_REF_NAME} does not match plugin/Cargo.toml version ${crate}" >&2
+          version="${GITHUB_REF_NAME#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "tag ${GITHUB_REF_NAME} does not look like a version" >&2
             exit 1
           fi
-          echo "releasing ${crate}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "releasing ${version}"
 
+      # The tag is the source of truth: the manifest follows it, not the other way
+      # round. Only [workspace.package] carries a version — both crates inherit it —
+      # so this is the single line to rewrite.
+      - name: Write the version into the manifest
+        run: |
+          set -euo pipefail
+          perl -0pi -e 's/(\[workspace\.package\]\nversion = ")[^"]*(")/${1}'"$VERSION"'${2}/' Cargo.toml
+          grep -A1 '^\[workspace.package\]' Cargo.toml
+
+      # Also refreshes Cargo.lock with the new version, which the commit below picks up.
       - name: Tests
         run: cargo test -p tab-notes-core
 
       - name: Build the plugin
         run: cargo build -p tab-notes --release --target wasm32-wasip1
 
-      # Cargo names binary artefacts after the package verbatim — tab-notes.wasm,
-      # not tab_notes.wasm. Only library artefacts get the underscore rewrite.
+      # Cargo names binary artefacts after the package verbatim — tab-notes.wasm, not
+      # tab_notes.wasm. Staged outside the working tree so the checkout below cannot
+      # clobber what we are about to publish.
       - name: Package
         run: |
           set -euo pipefail
-          cp target/wasm32-wasip1/release/tab-notes.wasm .
-          sha256sum tab-notes.wasm > tab-notes.wasm.sha256
-          cat tab-notes.wasm.sha256
+          cp target/wasm32-wasip1/release/tab-notes.wasm "$RUNNER_TEMP/"
+          ( cd "$RUNNER_TEMP" && sha256sum tab-notes.wasm > tab-notes.wasm.sha256 )
+          cat "$RUNNER_TEMP/tab-notes.wasm.sha256"
 
-      # The asset URL is an install method, not just an archive: Zellij loads
-      # plugins straight from an https:// location, so this file is what users
-      # point config.kdl at.
+      # The tagged commit still holds the previous version — the bump lands on main
+      # after it. Refusing to touch main when the tag is not on it keeps a tag cut from
+      # a side branch from rewriting the mainline version.
+      - name: Commit the bump to main
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::warning::${GITHUB_REF_NAME} is not an ancestor of main, leaving main untouched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          perl -0pi -e 's/(\[workspace\.package\]\nversion = ")[^"]*(")/${1}'"$VERSION"'${2}/' Cargo.toml
+          cargo test -p tab-notes-core >/dev/null
+          if git diff --quiet -- Cargo.toml Cargo.lock; then
+            echo "main is already at ${VERSION}, nothing to commit"
+            exit 0
+          fi
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: set version ${VERSION}"
+          git push origin main
+
+      # The asset URL is an install method, not just an archive: Zellij loads plugins
+      # straight from an https:// location, so this file is what users point
+      # config.kdl at.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh release create "${GITHUB_REF_NAME}" \
-            tab-notes.wasm tab-notes.wasm.sha256 \
+            "$RUNNER_TEMP/tab-notes.wasm" "$RUNNER_TEMP/tab-notes.wasm.sha256" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes

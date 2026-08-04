@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["core", "plugin"]
+
+# The single place the version lives. Releases are tag-driven: pushing a v* tag makes
+# the release workflow rewrite this value from the tag, build from it, publish, and
+# commit the bump back to main. Do not bump it by hand — the tag is the source of
+# truth and this line follows it.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"

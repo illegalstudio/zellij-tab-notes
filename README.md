@@ -108,13 +108,34 @@ Run once after any change to the watcher or the modal.
 ## Releasing
 
 CI runs formatting, clippy, the core tests and the wasm build on every push and pull
-request. Pushing a `v*` tag additionally builds and publishes a release.
+request.
+
+Releases are **tag-driven**: the tag is the version, and the manifest follows it. There
+is nothing to bump by hand.
 
 ```sh
-# the tag must match plugin/Cargo.toml, the workflow fails fast otherwise
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
+
+The release workflow then derives `0.2.0` from the tag, writes it into
+`[workspace.package]` in the root `Cargo.toml` — both crates inherit from there — runs
+the tests, builds the wasm, publishes the release with `tab-notes.wasm` and its
+`.sha256`, and commits the bump back to `main`.
+
+Two consequences worth knowing:
+
+- **The tagged commit still carries the previous version.** The bump lands on `main`
+  after the tag, so the commit the tag points at is not the one that names the release.
+  The published artifact is built from the tagged tree with the version patched in.
+- **That bump commit is made by GitHub Actions**, which has no signing key, so it is
+  the one unsigned commit in an otherwise signed history.
+
+A tag whose commit is not an ancestor of `main` still produces a release, but `main` is
+left untouched rather than having its version rewritten from a side branch.
+
+Malformed tags are rejected before anything is built: `v1.2` and `vX.Y.Z` fail,
+`v0.2.0` and `v0.2.0-rc1` pass.
 
 CI proves the code compiles and that the core logic passes its tests. It cannot prove
 the plugin behaves correctly inside Zellij — no automated test reaches that boundary,
