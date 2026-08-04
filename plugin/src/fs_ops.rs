@@ -1,8 +1,5 @@
-// This module is the complete filesystem-command interface for the plugin. Some of
-// it (editing and deleting notes, tagging commands with a tab name) is only consumed
-// starting with Task 7, so allow the not-yet-used items to stay warning-free here.
-#![allow(dead_code)]
-
+// This module is the complete filesystem-command interface for the plugin. Every
+// helper and constant here is consumed by the watcher and/or the modal.
 use std::collections::BTreeMap;
 use std::path::Path;
 use zellij_tile::prelude::*;

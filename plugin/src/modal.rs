@@ -138,8 +138,52 @@ impl Modal {
                 self.scroll = self.scroll.saturating_sub(10);
                 true
             }
+            BareKey::Char('e') => {
+                self.send_to_watcher("edit-note", self.tab.clone());
+                close_self();
+                false
+            }
+            BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
+                self.confirming_delete = true;
+                true
+            }
+            BareKey::Char('y') if self.confirming_delete => {
+                self.confirming_delete = false;
+                self.delete_note();
+                true
+            }
+            BareKey::Char('n') if self.confirming_delete => {
+                self.confirming_delete = false;
+                true
+            }
             _ => false,
         }
+    }
+
+    fn send_to_watcher(&self, name: &str, payload: Option<String>) {
+        let Some(watcher_id) = self.watcher_id else {
+            eprintln!("tab-notes: no watcher instance found, is it in load_plugins?");
+            return;
+        };
+        let mut message = MessageToPlugin::new(name).with_destination_plugin_id(watcher_id);
+        if let Some(payload) = payload {
+            message = message.with_payload(payload);
+        }
+        pipe_message_to_plugin(message);
+    }
+
+    fn delete_note(&mut self) {
+        let (Ok(config), Some(session), Some(tab)) =
+            (self.config.as_ref(), self.session.as_ref(), self.tab.as_ref())
+        else {
+            return;
+        };
+        // The modal performs its own destructive operation so that deleting still works
+        // when no watcher is loaded; the watcher is only told to refresh the icon.
+        fs_ops::delete_note(&note_path(&config.notes_dir, session, tab));
+        self.content = None;
+        self.status = Some("note deleted".to_string());
+        self.send_to_watcher("notes-changed", None);
     }
 
     pub fn render(&mut self, rows: usize, cols: usize) {
@@ -155,7 +199,7 @@ impl Modal {
 
         let body_rows = rows.saturating_sub(3);
         match &self.content {
-            Some(content) if !content.trim().is_empty() => {
+            Some(content) if self.has_note() => {
                 let lines = wrap(content, cols);
                 self.scroll = clamp_scroll(self.scroll, lines.len(), body_rows);
                 for (row, line) in lines.iter().skip(self.scroll).take(body_rows).enumerate() {
