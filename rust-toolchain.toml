@@ -1,0 +1,9 @@
+# Pinned so CI and a local checkout build the same thing.
+#
+# The wasm target belongs here rather than in a README step: this project has
+# already been bitten by the difference between wasm32-wasi and wasm32-wasip1,
+# which Zellij's own plugin example still documents incorrectly.
+[toolchain]
+channel = "1.95"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-wasip1"]

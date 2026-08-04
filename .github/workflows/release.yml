@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Fail before building rather than shipping a wasm whose version does not
+      # match the tag people will refer to.
+      - name: The tag must match the crate version
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          crate=$(grep -m1 '^version' plugin/Cargo.toml | cut -d'"' -f2)
+          if [ "$tag" != "$crate" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match plugin/Cargo.toml version ${crate}" >&2
+            exit 1
+          fi
+          echo "releasing ${crate}"
+
+      - name: Tests
+        run: cargo test -p tab-notes-core
+
+      - name: Build the plugin
+        run: cargo build -p tab-notes --release --target wasm32-wasip1
+
+      # Cargo names binary artefacts after the package verbatim — tab-notes.wasm,
+      # not tab_notes.wasm. Only library artefacts get the underscore rewrite.
+      - name: Package
+        run: |
+          set -euo pipefail
+          cp target/wasm32-wasip1/release/tab-notes.wasm .
+          sha256sum tab-notes.wasm > tab-notes.wasm.sha256
+          cat tab-notes.wasm.sha256
+
+      # The asset URL is an install method, not just an archive: Zellij loads
+      # plugins straight from an https:// location, so this file is what users
+      # point config.kdl at.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            tab-notes.wasm tab-notes.wasm.sha256 \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes

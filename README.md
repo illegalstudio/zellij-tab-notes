@@ -1,16 +1,47 @@
 # zellij-tab-notes
 
+[![CI](https://github.com/illegalstudio/zellij-tab-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/illegalstudio/zellij-tab-notes/actions/workflows/ci.yml)
+
 One markdown note per Zellij tab. Tabs with a note are marked with an icon in the tab bar.
 
 ## Install
 
-    rustup target add wasm32-wasip1
+### From a release — no Rust toolchain needed
+
+Zellij loads plugins straight from an `https://` location and follows redirects, so a
+release asset is a working plugin location. Point `config.kdl` at it and there is
+nothing to build:
+
+```kdl
+plugins {
+    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.1.0/tab-notes.wasm" {
+        role "modal"
+        notes_dir "/Users/you/.local/share/zellij-tab-notes"
+        icon "📝"
+    }
+    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.1.0/tab-notes.wasm" {
+        role "watcher"
+        notes_dir "/Users/you/.local/share/zellij-tab-notes"
+        icon "📝"
+    }
+}
+```
+
+Pin the version rather than using `releases/latest/download/`: Zellij caches plugins by
+URL, so a floating URL changes what you are running without you asking. Each release
+ships a `tab-notes.wasm.sha256` next to the binary if you want to check it.
+
+### From source
+
     ./build.sh
 
-`build.sh` installs the wasm to `~/.local/share/zellij/plugins/tab-notes.wasm`.
+The pinned toolchain and the `wasm32-wasip1` target come from `rust-toolchain.toml`;
+rustup installs them on first build. `build.sh` writes the wasm to
+`~/.local/share/zellij/plugins/tab-notes.wasm`, which the `file:` location below points
+at.
 
-Then add this to `config.kdl`, adjusting the paths — `notes_dir` must be absolute,
-because commands run without a shell and a leading `~` would not be expanded:
+`notes_dir` must be an absolute path in either case: commands run without a shell, so a
+leading `~` would not be expanded and you would get a directory literally named `~`.
 
 ```kdl
 plugins {
@@ -25,9 +56,13 @@ plugins {
         icon "📝"
     }
 }
+```
 
-// The watcher keeps the icons correct from the moment the session opens, so it has
-// to be running before the modal is ever opened.
+### Then, whichever method you used
+
+```kdl
+// The watcher keeps the icons correct from the moment the session opens, so it has to
+// be running before the modal is ever opened.
 load_plugins {
     tab-notes-watcher
 }
@@ -69,3 +104,23 @@ Run once after any change to the watcher or the modal.
     a position-based rename would break.
 12. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
     the icon with its slash intact.
+
+## Releasing
+
+CI runs formatting, clippy, the core tests and the wasm build on every push and pull
+request. Pushing a `v*` tag additionally builds and publishes a release.
+
+```sh
+# the tag must match plugin/Cargo.toml, the workflow fails fast otherwise
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+CI proves the code compiles and that the core logic passes its tests. It cannot prove
+the plugin behaves correctly inside Zellij — no automated test reaches that boundary,
+and that is exactly where this project's two worst bugs lived. Run the checklist above
+before tagging.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

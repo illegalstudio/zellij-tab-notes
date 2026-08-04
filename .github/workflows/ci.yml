@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs exactly what rust-toolchain.toml pins, including the wasm target.
+      - name: Install the pinned toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      # The core crate is ordinary native Rust; the plugin crate only ever builds
+      # for wasm, because zellij-tile resolves host functions that exist only
+      # inside Zellij's runtime and will not link natively.
+      - name: Lint the core crate
+        run: cargo clippy -p tab-notes-core --all-targets -- -D warnings
+
+      - name: Lint the plugin crate
+        run: cargo clippy -p tab-notes --target wasm32-wasip1 -- -D warnings
+
+      - name: Tests
+        run: cargo test -p tab-notes-core
+
+      - name: Build the plugin
+        run: cargo build -p tab-notes --release --target wasm32-wasip1
