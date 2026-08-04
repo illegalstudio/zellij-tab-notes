@@ -49,18 +49,20 @@ impl Modal {
                 let Some(current) = sessions.iter().find(|s| s.is_current_session) else {
                     return false;
                 };
-                self.session = Some(current.name.clone());
-                // The watcher is addressed by plugin id, discovered from the session's
-                // plugin list: no need to duplicate its URL in the modal's configuration.
-                self.watcher_id = current
-                    .plugins
-                    .iter()
-                    .find(|(_, info)| {
-                        info.configuration.get("role").map(String::as_str) != Some("modal")
-                            && info.location.contains("tab-notes")
-                    })
-                    .map(|(id, _)| *id);
-                self.read_note();
+                if self.session.as_deref() != Some(current.name.as_str()) {
+                    self.session = Some(current.name.clone());
+                    // The watcher is addressed by plugin id, discovered from the session's
+                    // plugin list: no need to duplicate its URL in the modal's configuration.
+                    self.watcher_id = current
+                        .plugins
+                        .iter()
+                        .find(|(_, info)| {
+                            info.configuration.get("role").map(String::as_str) != Some("modal")
+                                && info.location.contains("tab-notes")
+                        })
+                        .map(|(id, _)| *id);
+                    self.read_note();
+                }
                 true
             }
             Event::TabUpdate(tabs) => {
