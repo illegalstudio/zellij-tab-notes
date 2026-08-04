@@ -1,4 +1,5 @@
 use crate::icon::{decorate, strip_icon};
+use crate::paths::sanitize_tab_name;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,17 +16,30 @@ pub enum Action {
     /// 1-based user input and subtracts one, so passing a 0-based `TabInfo.position`
     /// renames the tab before the intended one — and never converges.
     RenameTab { id: usize, name: String },
-    /// Move a note file because its tab was renamed. Both values are clean tab names.
+    /// Move a note file because its tab was renamed. Both values are **note keys**
+    /// (`sanitize_tab_name` applied to a clean tab name), not display names, so they
+    /// must be turned into paths with `note_path_from_key`.
     MoveNote { from: String, to: String },
 }
 
 /// Keeps tab names in sync with the set of tabs that have notes.
 ///
+/// Two namespaces meet here and must not be confused:
+///
+/// - the **display name** is the user's tab name with the icon stripped, and is what
+///   goes back to Zellij in `Action::RenameTab`;
+/// - the **note key** is `sanitize_tab_name(display_name)`, and is what the `notes`
+///   set contains, because that set is parsed from filenames.
+///
+/// Looking a display name up in `notes` silently fails for anything sanitization
+/// rewrites (`feature/login` vs `feature-login`): the tab never gets an icon, and the
+/// collision guard below is defeated, so a rename can destroy another tab's note.
+///
 /// `reconcile` is idempotent: feeding it a settled state produces no actions, which is
-/// what stops `rename_tab` from re-triggering itself through the resulting `TabUpdate`.
+/// what stops a rename from re-triggering itself through the resulting `TabUpdate`.
 pub struct Reconciler {
     icon: String,
-    /// tab id -> last seen clean name. The id is stable across MoveTab and across the
+    /// tab id -> last seen note key. The id is stable across MoveTab and across the
     /// closing of other tabs, which is what makes rename detection trustworthy.
     known: BTreeMap<usize, String>,
 }
@@ -40,17 +54,23 @@ impl Reconciler {
 
         for tab in tabs {
             let clean = strip_icon(&tab.name, &self.icon).to_string();
+            let key = sanitize_tab_name(&clean);
 
             if let Some(previous) = self.known.get(&tab.id) {
-                if previous != &clean && notes.contains(previous) && !notes.contains(&clean) {
+                // Never move a note onto a key that already has one — that would
+                // silently destroy the destination's content, whether it belongs to
+                // another open tab or is an orphan left by a closed one. Colliding
+                // names degrade to sharing, which the design accepts; losing a note
+                // is not.
+                if previous != &key && notes.contains(previous) && !notes.contains(&key) {
                     notes.remove(previous);
-                    notes.insert(clean.clone());
-                    actions.push(Action::MoveNote { from: previous.clone(), to: clean.clone() });
+                    notes.insert(key.clone());
+                    actions.push(Action::MoveNote { from: previous.clone(), to: key.clone() });
                 }
             }
-            self.known.insert(tab.id, clean.clone());
+            self.known.insert(tab.id, key.clone());
 
-            let expected = decorate(&clean, &self.icon, notes.contains(&clean));
+            let expected = decorate(&clean, &self.icon, notes.contains(&key));
             if expected != tab.name {
                 actions.push(Action::RenameTab { id: tab.id, name: expected });
             }
@@ -214,5 +234,46 @@ mod tests {
         assert!(!has_move_note, "must not emit MoveNote when destination has an orphan note");
         // Note set must be unchanged
         assert_eq!(n, notes(&["old", "z"]), "both notes must survive");
+    }
+
+    #[test]
+    fn decorates_a_tab_whose_name_sanitizes_to_the_note_key() {
+        let mut r = Reconciler::new(ICON);
+        // The note set comes from filenames, so it holds the sanitized key.
+        let mut n = notes(&["feature-login"]);
+        let actions = r.reconcile(&[tab(1, "feature/login")], &mut n);
+        assert_eq!(
+            actions,
+            vec![Action::RenameTab { id: 1, name: "📝 feature/login".to_string() }],
+            "the icon must follow the note key, the displayed name stays unsanitized"
+        );
+    }
+
+    #[test]
+    fn does_not_move_a_note_onto_a_name_that_shares_a_sanitized_key() {
+        let mut r = Reconciler::new(ICON);
+        let mut n = notes(&["scratch", "notes-todo"]);
+        r.reconcile(&[tab(1, "scratch")], &mut n);
+        // "notes/todo" sanitizes to "notes-todo", which already has a note file.
+        let actions = r.reconcile(&[tab(1, "notes/todo")], &mut n);
+        let has_move_note = actions.iter().any(|a| matches!(a, Action::MoveNote { .. }));
+        assert!(!has_move_note, "the guard must compare keys, not raw display names");
+        assert_eq!(n, notes(&["scratch", "notes-todo"]), "both notes must survive");
+    }
+
+    #[test]
+    fn a_move_carries_note_keys_not_display_names() {
+        let mut r = Reconciler::new(ICON);
+        let mut n = notes(&["old"]);
+        r.reconcile(&[tab(7, "old")], &mut n);
+        let actions = r.reconcile(&[tab(7, "feature/login")], &mut n);
+        assert_eq!(
+            actions,
+            vec![
+                Action::MoveNote { from: "old".to_string(), to: "feature-login".to_string() },
+                Action::RenameTab { id: 7, name: "📝 feature/login".to_string() },
+            ]
+        );
+        assert_eq!(n, notes(&["feature-login"]));
     }
 }

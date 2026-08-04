@@ -2,7 +2,7 @@ use tab_notes_core::config::Config;
 use crate::fs_ops;
 use std::collections::BTreeSet;
 use tab_notes_core::listing::parse_note_listing;
-use tab_notes_core::paths::{note_path, session_dir};
+use tab_notes_core::paths::{note_path, note_path_from_key, session_dir};
 use tab_notes_core::reconcile::{Action, Reconciler, TabView};
 use zellij_tile::prelude::*;
 
@@ -142,9 +142,11 @@ impl Watcher {
                 // `rename_tab` takes a 1-based position and subtracts one internally;
                 // `rename_tab_with_id` looks the tab up directly, with no arithmetic.
                 Action::RenameTab { id, name } => rename_tab_with_id(id as u64, &name),
+                // Both endpoints are already note keys: sanitizing them again is not
+                // a no-op and would point the move at a different file.
                 Action::MoveNote { from, to } => fs_ops::move_note(
-                    &note_path(&config.notes_dir, session, &from),
-                    &note_path(&config.notes_dir, session, &to),
+                    &note_path_from_key(&config.notes_dir, session, &from),
+                    &note_path_from_key(&config.notes_dir, session, &to),
                 ),
             }
         }
