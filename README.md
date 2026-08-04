@@ -30,3 +30,8 @@ Run once after any change to the watcher or the modal.
 8. `d` then `y` in the modal → the note is deleted and the icon disappears.
 9. Two tabs with the same name → they share one note. Renaming a tab onto a name already taken leaves both note files intact and orphans the source file rather than overwriting.
 10. Delete confirmation state does not survive between tabs: arm delete with `d` on one tab, move the modal to another tab, and confirm `y` does nothing until `d` is pressed again.
+11. With three or more tabs, give a note to the *last* one → only that tab gains the icon,
+    and the tab bar settles immediately (no flicker, no repeated renaming). This is what
+    a position-based rename would break.
+12. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
+    the icon with its slash intact.

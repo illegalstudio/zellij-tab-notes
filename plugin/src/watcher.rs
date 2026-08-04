@@ -12,6 +12,11 @@ pub struct Watcher {
     session: Option<String>,
     tabs: Vec<TabView>,
     notes: BTreeSet<String>,
+    /// Whether a listing has ever completed. Until it has, `notes` is empty because
+    /// nothing has been read yet — not because no tab has a note — and acting on it
+    /// would strip the icon off every decorated tab and orphan the note of any tab
+    /// renamed inside that window.
+    listed_once: bool,
 }
 
 impl Watcher {
@@ -23,6 +28,7 @@ impl Watcher {
             session: None,
             tabs: Vec::new(),
             notes: BTreeSet::new(),
+            listed_once: false,
         }
     }
 
@@ -61,6 +67,17 @@ impl Watcher {
             }
             Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                 self.on_command_result(exit_code, stdout, stderr, context);
+            }
+            Event::PermissionRequestResult(PermissionStatus::Granted) => {
+                // `ensure_dir` is the head of the only chain that populates `notes`,
+                // and it runs once, when the session name first becomes known. If the
+                // grant lands after that, the command was refused, no result ever
+                // arrived, and the watcher would list nothing for the rest of the
+                // session. Re-arm the chain now that commands are allowed.
+                if let Some(session) = self.session.clone() {
+                    fs_ops::ensure_dir(&session_dir(&config.notes_dir, &session));
+                    self.refresh();
+                }
             }
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 // Reuse the "not configured" inert path rather than adding a second flag:
@@ -106,9 +123,10 @@ impl Watcher {
                     );
                     BTreeSet::new()
                 };
+                self.listed_once = true;
                 self.apply();
             }
-            Some(op @ (fs_ops::OP_CLEANUP | fs_ops::OP_MOVE | fs_ops::OP_DELETE)) => {
+            Some(op @ (fs_ops::OP_MOVE | fs_ops::OP_DELETE)) => {
                 if exit_code != Some(0) {
                     eprintln!(
                         "tab-notes: {op} failed: {}",
@@ -117,6 +135,10 @@ impl Watcher {
                 }
                 self.refresh();
             }
+            // `find … -size 0c -delete` exits non-zero when the file was never
+            // created, which is the routine "opened a note and quit without saving"
+            // path. Refresh, but do not call it an error.
+            Some(fs_ops::OP_CLEANUP) => self.refresh(),
             _ => {}
         }
     }
@@ -130,6 +152,12 @@ impl Watcher {
     }
 
     fn apply(&mut self) {
+        // An empty `notes` before the first listing means "not known yet", not "no
+        // notes": reconciling against it would strip every icon and orphan the note
+        // of any tab renamed in that window.
+        if !self.listed_once {
+            return;
+        }
         let (Ok(config), Some(session), Some(reconciler)) = (
             self.config.as_ref(),
             self.session.as_ref(),

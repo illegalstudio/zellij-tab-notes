@@ -43,6 +43,9 @@ pub fn list_notes(dir: &Path) {
             &dir.to_string_lossy(),
             "-maxdepth",
             "1",
+            // `-type f` so a directory called `something.md` is never read as a note.
+            "-type",
+            "f",
             "-name",
             "*.md",
             "-size",
@@ -60,9 +63,14 @@ pub fn delete_note(path: &Path) {
     run_command(&["rm", "-f", &path.to_string_lossy()], context(OP_DELETE));
 }
 
+/// `-n`, never `-f`: the reconciler's collision guard is an in-memory check against a
+/// listing that can be stale (a note written by an editor that has not exited yet is
+/// not in it), so the filesystem, not the cache, has the last word on overwriting. A
+/// refused move is benign — the chained refresh re-lists and settles into the
+/// documented "collision degrades to sharing, source orphaned" behaviour.
 pub fn move_note(from: &Path, to: &Path) {
     run_command(
-        &["mv", "-f", &from.to_string_lossy(), &to.to_string_lossy()],
+        &["mv", "-n", &from.to_string_lossy(), &to.to_string_lossy()],
         context(OP_MOVE),
     );
 }

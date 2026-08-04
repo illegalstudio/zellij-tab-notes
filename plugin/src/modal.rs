@@ -61,9 +61,13 @@ impl Modal {
                                 && info.location.contains("tab-notes")
                         })
                         .map(|(id, _)| *id);
-                    // Note-scoped state must not survive a change of which note is shown.
+                    // Note-scoped state must not survive a change of which note is
+                    // shown. `content` included: while the new read is in flight it
+                    // would otherwise answer `has_note()` about the previous note
+                    // while `delete_note()` already targets the new one.
                     self.confirming_delete = false;
                     self.status = None;
+                    self.content = None;
                     self.read_note();
                 }
                 true
@@ -76,14 +80,18 @@ impl Modal {
                 if self.tab.as_deref() != Some(clean.as_str()) {
                     self.tab = Some(clean);
                     self.scroll = 0;
-                    // Note-scoped state must not survive a change of which note is shown.
+                    // Note-scoped state must not survive a change of which note is
+                    // shown. `content` included: while the new read is in flight it
+                    // would otherwise answer `has_note()` about the previous tab's
+                    // note while `delete_note()` already targets the new one.
                     self.confirming_delete = false;
                     self.status = None;
+                    self.content = None;
                     self.read_note();
                 }
                 true
             }
-            Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
+            Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                 match fs_ops::op_of(&context) {
                     Some(fs_ops::OP_READ) => {
                         self.content = if exit_code == Some(0) {
@@ -91,6 +99,24 @@ impl Modal {
                         } else {
                             None
                         };
+                        true
+                    }
+                    // Report what actually happened, and only tell the watcher the
+                    // note is gone once the `rm` has really finished — sending the
+                    // pipe from `delete_note` raced the subprocess, so the refresh
+                    // could list the note that was still there and leave the icon on.
+                    Some(fs_ops::OP_DELETE) => {
+                        if exit_code == Some(0) {
+                            self.content = None;
+                            self.status = Some("note deleted".to_string());
+                            self.send_to_watcher("notes-changed", None);
+                        } else {
+                            eprintln!(
+                                "tab-notes: delete failed: {}",
+                                String::from_utf8_lossy(&stderr)
+                            );
+                            self.status = Some("delete failed — see the Zellij log".to_string());
+                        }
                         true
                     }
                     _ => false,
@@ -144,7 +170,9 @@ impl Modal {
                 self.scroll = self.scroll.saturating_sub(10);
                 true
             }
-            BareKey::Char('e') => {
+            // Without a tab name there is nothing to open: the watcher drops a
+            // payload-less `edit-note` silently, so the modal would just close.
+            BareKey::Char('e') if self.tab.is_some() => {
                 self.send_to_watcher("edit-note", self.tab.clone());
                 close_self();
                 false
@@ -186,10 +214,10 @@ impl Modal {
         };
         // The modal performs its own destructive operation so that deleting still works
         // when no watcher is loaded; the watcher is only told to refresh the icon.
+        // Everything the user is told about the outcome happens in the OP_DELETE arm
+        // of `update`, once the command has actually reported an exit code.
         fs_ops::delete_note(&note_path(&config.notes_dir, session, tab));
-        self.content = None;
-        self.status = Some("note deleted".to_string());
-        self.send_to_watcher("notes-changed", None);
+        self.status = Some("deleting…".to_string());
     }
 
     pub fn render(&mut self, rows: usize, cols: usize) {
