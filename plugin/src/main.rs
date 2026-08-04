@@ -1,3 +1,4 @@
+mod fs_ops;
 mod modal;
 mod watcher;
 
