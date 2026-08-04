@@ -69,6 +69,19 @@ impl Watcher {
                 eprintln!("tab-notes: permissions denied, the watcher will stay inert");
                 self.config = Err("tab-notes: permissions denied".to_string());
             }
+            Event::EditPaneExited(_pane_id, _exit_code, context) => {
+                if fs_ops::op_of(&context) != Some(fs_ops::OP_EDIT) {
+                    return false;
+                }
+                let (Some(tab), Some(session)) =
+                    (context.get(fs_ops::TAB_KEY), self.session.clone())
+                else {
+                    return false;
+                };
+                // An aborted edit leaves a zero-byte file behind; remove it so it never
+                // counts as a note. The refresh is chained to this command's result.
+                fs_ops::delete_if_empty(&note_path(&config.notes_dir, &session, tab));
+            }
             _ => {}
         }
         false
@@ -95,6 +108,15 @@ impl Watcher {
                     BTreeSet::new()
                 };
                 self.apply();
+            }
+            Some(op @ (fs_ops::OP_CLEANUP | fs_ops::OP_MOVE | fs_ops::OP_DELETE)) => {
+                if exit_code != Some(0) {
+                    eprintln!(
+                        "tab-notes: {op} failed: {}",
+                        String::from_utf8_lossy(&stderr)
+                    );
+                }
+                self.refresh();
             }
             _ => {}
         }
@@ -127,7 +149,28 @@ impl Watcher {
         }
     }
 
-    pub fn pipe(&mut self, _pipe_message: PipeMessage) -> bool {
+    pub fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        let Ok(config) = self.config.clone() else {
+            return false;
+        };
+        let Some(session) = self.session.clone() else {
+            return false;
+        };
+        match pipe_message.name.as_str() {
+            "notes-changed" => self.refresh(),
+            "edit-note" => {
+                let Some(tab) = pipe_message.payload else {
+                    return false;
+                };
+                let path = note_path(&config.notes_dir, &session, &tab);
+                open_file_floating(
+                    FileToOpen::new(path),
+                    None,
+                    fs_ops::context_with_tab(fs_ops::OP_EDIT, &tab),
+                );
+            }
+            _ => {}
+        }
         false
     }
 }
