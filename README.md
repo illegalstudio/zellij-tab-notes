@@ -7,8 +7,37 @@ One markdown note per Zellij tab. Tabs with a note are marked with an icon in th
     rustup target add wasm32-wasip1
     ./build.sh
 
-Then see `docs/superpowers/specs/2026-08-03-zellij-tab-notes-design.md` for the
-`config.kdl` snippet.
+`build.sh` installs the wasm to `~/.local/share/zellij/plugins/tab-notes.wasm`.
+
+Then add this to `config.kdl`, adjusting the paths — `notes_dir` must be absolute,
+because commands run without a shell and a leading `~` would not be expanded:
+
+```kdl
+plugins {
+    tab-notes location="file:/Users/you/.local/share/zellij/plugins/tab-notes.wasm" {
+        role "modal"
+        notes_dir "/Users/you/.local/share/zellij-tab-notes"
+        icon "📝"
+    }
+    tab-notes-watcher location="file:/Users/you/.local/share/zellij/plugins/tab-notes.wasm" {
+        role "watcher"
+        notes_dir "/Users/you/.local/share/zellij-tab-notes"
+        icon "📝"
+    }
+}
+
+// The watcher keeps the icons correct from the moment the session opens, so it has
+// to be running before the modal is ever opened.
+load_plugins {
+    tab-notes-watcher
+}
+```
+
+and, inside the `tab` keybinds block:
+
+```kdl
+bind "a" { LaunchOrFocusPlugin "tab-notes" { floating true; move_to_focused_tab true; }; SwitchToMode "normal"; }
+```
 
 ## Usage
 
