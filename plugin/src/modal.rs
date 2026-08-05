@@ -1,8 +1,9 @@
 use crate::fs_ops;
 use tab_notes_core::config::Config;
 use tab_notes_core::icon::strip_icon;
+use tab_notes_core::markdown::{self, LineKind, RenderedLine, SpanKind};
 use tab_notes_core::paths::note_path;
-use tab_notes_core::viewport::{clamp_scroll, is_heading, wrap};
+use tab_notes_core::viewport::clamp_scroll;
 use zellij_tile::prelude::*;
 
 pub struct Modal {
@@ -273,15 +274,10 @@ impl Modal {
         let body_rows = rows.saturating_sub(3);
         match &self.content {
             Some(content) if self.has_note() => {
-                let lines = wrap(content, cols);
+                let lines = markdown::wrap(&markdown::render(content), cols);
                 self.scroll = clamp_scroll(self.scroll, lines.len(), body_rows);
                 for (row, line) in lines.iter().skip(self.scroll).take(body_rows).enumerate() {
-                    let text = if is_heading(line) {
-                        Text::new(line).color_range(0, ..)
-                    } else {
-                        Text::new(line)
-                    };
-                    print_text_with_coordinates(text, 0, row + 2, Some(cols), None);
+                    print_text_with_coordinates(style(line, cols), 0, row + 2, Some(cols), None);
                 }
             }
             _ => {
@@ -306,4 +302,60 @@ impl Modal {
             None,
         );
     }
+}
+
+/// Maps a line's meaning onto Zellij's styling primitives.
+///
+/// A terminal has one font size, so headings read as headings through case, colour and
+/// the rule underneath them, not through size. Note that `Text` is bold by default —
+/// there is no `bold_range`, only `unbold_*` — so body text is explicitly unbolded and
+/// weight is what sets headings and strong runs apart.
+fn style(line: &RenderedLine, cols: usize) -> Text {
+    match line.kind {
+        LineKind::Rule => Text::new("─".repeat(cols)).dim_all(),
+        LineKind::Heading1 => Text::new(&line.text).color_range(0, ..),
+        LineKind::Heading2 => Text::new(&line.text).color_range(3, ..),
+        LineKind::Heading3 => Text::new(&line.text).color_range(1, ..),
+        // A finished task is still readable but stops competing for attention.
+        LineKind::Checkbox { done: true } => body(line).dim_all(),
+        LineKind::Checkbox { done: false } => body(line).color_range(2, 0..1),
+        LineKind::Bullet => body(line).color_range(1, 0..1),
+        LineKind::Quote => body(line).dim_all(),
+        LineKind::Code => Text::new(&line.text).color_range(1, ..).unbold_all(),
+        LineKind::Plain => body(line),
+    }
+}
+
+/// Unbolds everything except the strong runs, and colours the inline code runs.
+fn body(line: &RenderedLine) -> Text {
+    let mut text = Text::new(&line.text);
+    let len = line.text.chars().count();
+    let strong: Vec<(usize, usize)> = line
+        .spans
+        .iter()
+        .filter(|s| s.kind == SpanKind::Strong)
+        .map(|s| (s.start, s.end))
+        .collect();
+
+    if strong.is_empty() {
+        text = text.unbold_all();
+    } else {
+        // There is no way to add weight, only to remove it, so the strong runs are the
+        // gaps left between the ranges we unbold.
+        let mut cursor = 0;
+        for (start, end) in &strong {
+            if cursor < *start {
+                text = text.unbold_range(cursor..*start);
+            }
+            cursor = *end;
+        }
+        if cursor < len {
+            text = text.unbold_range(cursor..len);
+        }
+    }
+
+    for span in line.spans.iter().filter(|s| s.kind == SpanKind::Code) {
+        text = text.color_range(1, span.start..span.end);
+    }
+    text
 }
