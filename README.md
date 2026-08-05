@@ -27,9 +27,15 @@ plugins {
 }
 ```
 
-Pin the version rather than using `releases/latest/download/`: Zellij caches plugins by
-URL, so a floating URL changes what you are running without you asking. Each release
-ships a `tab-notes.wasm.sha256` next to the binary if you want to check it.
+Replace `v0.1.0` with a release that actually exists — check the releases page. And pin
+a version rather than using `releases/latest/download/`: Zellij caches plugins by URL,
+so a floating URL changes what you are running without you asking. Each release ships a
+`tab-notes.wasm.sha256` next to the binary if you want to check it.
+
+> **If you are working on the plugin, do not install it this way.** A release URL is
+> immutable by design, so Zellij keeps loading the published build and your local
+> rebuilds have no effect whatsoever — with no error to tell you so. Use the `file:`
+> location below while developing.
 
 ### From source
 
