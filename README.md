@@ -108,9 +108,10 @@ Run once after any change to the watcher or the modal.
 11. With three or more tabs, give a note to the *last* one → only that tab gains the icon,
     and the tab bar settles immediately (no flicker, no repeated renaming). This is what
     a position-based rename would break.
-12. `m` in the modal → it shrinks to the top-right corner, stays readable, and stays on
-    top while you move around other panes. `Ctrl t` `a` restores it to full size. Note
-    that expanding restores *this plugin's* size, not whatever Zellij picked originally.
+12. `m` in the modal → it shrinks to a pinned box in the top-right corner, stays
+    readable, and stays on top while you move around other panes. `Ctrl t` `a` focuses
+    it again and `m` restores the full size. Note that expanding restores *this
+    plugin's* size, not whatever Zellij picked originally.
 13. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
     the icon with its slash intact.
 

@@ -2,7 +2,6 @@ use crate::fs_ops;
 use tab_notes_core::config::Config;
 use tab_notes_core::icon::strip_icon;
 use tab_notes_core::markdown::{self, LineKind, RenderedLine, SpanKind};
-use tab_notes_core::minimize::Size;
 use tab_notes_core::paths::note_path;
 use tab_notes_core::viewport::clamp_scroll;
 use zellij_tile::prelude::*;
@@ -26,9 +25,9 @@ const EXPANDED: Geometry = Geometry {
 };
 
 const MINIMIZED: Geometry = Geometry {
-    x: 58,
+    x: 72,
     y: 0,
-    width: 42,
+    width: 28,
     height: 32,
 };
 
@@ -40,7 +39,7 @@ pub struct Modal {
     status: Option<String>,
     scroll: usize,
     confirming_delete: bool,
-    size: Size,
+    minimized: bool,
 }
 
 impl Modal {
@@ -53,7 +52,7 @@ impl Modal {
             status: None,
             scroll: 0,
             confirming_delete: false,
-            size: Size::Expanded,
+            minimized: false,
         }
     }
 
@@ -64,7 +63,6 @@ impl Modal {
             EventType::TabUpdate,
             EventType::RunCommandResult,
             EventType::EditPaneExited,
-            EventType::PaneUpdate,
             EventType::Key,
         ]);
     }
@@ -164,20 +162,6 @@ impl Modal {
                 self.status = None;
                 true
             }
-            // The route back from minimised: Ctrl t, a focuses this instance again, and
-            // regaining focus after having lost it is what asks for the full size back.
-            Event::PaneUpdate(manifest) => {
-                let Some(focused) = self.own_pane_is_focused(&manifest) else {
-                    return false;
-                };
-                let (size, expand) = self.size.on_focus(focused);
-                self.size = size;
-                if expand {
-                    self.apply_geometry(EXPANDED);
-                    set_floating_pane_pinned(self.own_pane(), false);
-                }
-                expand
-            }
             Event::Key(key) => self.on_key(key),
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 self.config = Err(
@@ -220,16 +204,6 @@ impl Modal {
 
     fn own_pane(&self) -> PaneId {
         PaneId::Plugin(get_plugin_ids().plugin_id)
-    }
-
-    fn own_pane_is_focused(&self, manifest: &PaneManifest) -> Option<bool> {
-        let me = get_plugin_ids().plugin_id;
-        manifest
-            .panes
-            .values()
-            .flatten()
-            .find(|pane| pane.is_plugin && pane.id == me)
-            .map(|pane| pane.is_focused)
     }
 
     fn apply_geometry(&self, geometry: Geometry) {
@@ -282,12 +256,18 @@ impl Modal {
                 self.open_editor();
                 true
             }
-            // Shrinks to a pinned corner box that stays readable while you work
-            // elsewhere. Ctrl t, a brings it back to full size.
-            BareKey::Char('m') if !self.size.is_minimized() => {
-                self.size = Size::minimized();
-                self.apply_geometry(MINIMIZED);
-                set_floating_pane_pinned(self.own_pane(), true);
+            // Toggles a pinned corner box that stays readable while you work
+            // elsewhere. Ctrl t, a focuses it again; m brings it back to full size.
+            BareKey::Char('m') => {
+                self.minimized = !self.minimized;
+                if self.minimized {
+                    self.apply_geometry(MINIMIZED);
+                    set_floating_pane_pinned(self.own_pane(), true);
+                } else {
+                    // Unpin first: a pinned pane may well ignore a coordinate change.
+                    set_floating_pane_pinned(self.own_pane(), false);
+                    self.apply_geometry(EXPANDED);
+                }
                 true
             }
             BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
@@ -353,7 +333,7 @@ impl Modal {
 
         // Minimised there is no room to spend on a key list, and the keys it would
         // advertise need focus anyway.
-        let body_rows = if self.size.is_minimized() {
+        let body_rows = if self.minimized {
             rows.saturating_sub(2)
         } else {
             rows.saturating_sub(3)
@@ -375,7 +355,7 @@ impl Modal {
             }
         }
 
-        if self.size.is_minimized() {
+        if self.minimized {
             return;
         }
 
