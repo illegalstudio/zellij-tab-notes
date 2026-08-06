@@ -1,8 +1,31 @@
-# zellij-tab-notes
+<p align="center">
+  <img src="assets/icon.png" alt="zellij-tab-notes logo" width="130">
+</p>
 
-[![CI](https://github.com/illegalstudio/zellij-tab-notes/actions/workflows/ci.yml/badge.svg)](https://github.com/illegalstudio/zellij-tab-notes/actions/workflows/ci.yml)
+<h1 align="center">zellij-tab-notes</h1>
 
-One markdown note per Zellij tab. Tabs with a note are marked with an icon in the tab bar.
+<p align="center">
+  <em>One tab. One note. Zero lost context.</em>
+</p>
+
+<p align="center">
+  <a href="https://github.com/illegalstudio/zellij-tab-notes/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/illegalstudio/zellij-tab-notes/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI&color=EBCB8B" alt="CI"></a>
+  <a href="https://github.com/illegalstudio/zellij-tab-notes/releases/latest"><img src="https://img.shields.io/github/v/release/illegalstudio/zellij-tab-notes?style=flat-square&logo=github&logoColor=white&label=release&color=EBCB8B" alt="Latest release"></a>
+  <a href="https://github.com/illegalstudio/zellij-tab-notes/releases"><img src="https://img.shields.io/github/downloads/illegalstudio/zellij-tab-notes/total?style=flat-square&logo=github&logoColor=white&label=downloads&color=EBCB8B" alt="Downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/illegalstudio/zellij-tab-notes?style=flat-square&color=EBCB8B" alt="License: MIT"></a>
+</p>
+
+<p align="center">
+  <strong>Markdown files &middot; Your $EDITOR &middot; Live tab markers &middot; One WASM plugin</strong>
+</p>
+
+<p align="center">
+  zellij-tab-notes keeps a persistent Markdown scratchpad beside every Zellij tab.
+  Open it with one shortcut, edit it in <code>$EDITOR</code>, and let the watcher keep
+  the tab bar in sync.
+</p>
+
+---
 
 ## Install
 
