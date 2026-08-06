@@ -37,12 +37,12 @@ nothing to build:
 
 ```kdl
 plugins {
-    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.1.0/tab-notes.wasm" {
+    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.0/tab-notes.wasm" {
         role "modal"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
     }
-    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.1.0/tab-notes.wasm" {
+    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.0/tab-notes.wasm" {
         role "watcher"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
@@ -50,10 +50,13 @@ plugins {
 }
 ```
 
-Replace `v0.1.0` with a release that actually exists — check the releases page. And pin
-a version rather than using `releases/latest/download/`: Zellij caches plugins by URL,
-so a floating URL changes what you are running without you asking. Each release ships a
-`tab-notes.wasm.sha256` next to the binary if you want to check it.
+> **Choose your version.** The snippet above pins `v0.2.0` as an example. Replace it
+> with the release you want to run and verify that it exists on the
+> [releases page](https://github.com/illegalstudio/zellij-tab-notes/releases); the
+> version shown here may not be the latest available. Keep a fixed release URL rather
+> than using `releases/latest/download/`: Zellij caches plugins by URL, so a floating
+> URL changes what you are running without you asking. Each release ships a
+> `tab-notes.wasm.sha256` next to the binary if you want to check it.
 
 > **If you are working on the plugin, do not install it this way.** A release URL is
 > immutable by design, so Zellij keeps loading the published build and your local
