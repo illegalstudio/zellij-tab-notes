@@ -2,9 +2,35 @@ use crate::fs_ops;
 use tab_notes_core::config::Config;
 use tab_notes_core::icon::strip_icon;
 use tab_notes_core::markdown::{self, LineKind, RenderedLine, SpanKind};
+use tab_notes_core::minimize::Size;
 use tab_notes_core::paths::note_path;
 use tab_notes_core::viewport::clamp_scroll;
 use zellij_tile::prelude::*;
+
+/// Percentages of the screen. Expanding cannot restore whatever size Zellij originally
+/// chose — a plugin has no way to read its own coordinates — so expanding means "this
+/// size", and from the first minimise on, that is the modal's size.
+#[derive(Clone, Copy)]
+struct Geometry {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+}
+
+const EXPANDED: Geometry = Geometry {
+    x: 10,
+    y: 10,
+    width: 80,
+    height: 70,
+};
+
+const MINIMIZED: Geometry = Geometry {
+    x: 58,
+    y: 0,
+    width: 42,
+    height: 32,
+};
 
 pub struct Modal {
     config: Result<Config, String>,
@@ -14,6 +40,7 @@ pub struct Modal {
     status: Option<String>,
     scroll: usize,
     confirming_delete: bool,
+    size: Size,
 }
 
 impl Modal {
@@ -26,6 +53,7 @@ impl Modal {
             status: None,
             scroll: 0,
             confirming_delete: false,
+            size: Size::Expanded,
         }
     }
 
@@ -36,6 +64,7 @@ impl Modal {
             EventType::TabUpdate,
             EventType::RunCommandResult,
             EventType::EditPaneExited,
+            EventType::PaneUpdate,
             EventType::Key,
         ]);
     }
@@ -135,6 +164,20 @@ impl Modal {
                 self.status = None;
                 true
             }
+            // The route back from minimised: Ctrl t, a focuses this instance again, and
+            // regaining focus after having lost it is what asks for the full size back.
+            Event::PaneUpdate(manifest) => {
+                let Some(focused) = self.own_pane_is_focused(&manifest) else {
+                    return false;
+                };
+                let (size, expand) = self.size.on_focus(focused);
+                self.size = size;
+                if expand {
+                    self.apply_geometry(EXPANDED);
+                    set_floating_pane_pinned(self.own_pane(), false);
+                }
+                expand
+            }
             Event::Key(key) => self.on_key(key),
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 self.config = Err(
@@ -175,6 +218,35 @@ impl Modal {
         self.status = Some("editing in $EDITOR…".to_string());
     }
 
+    fn own_pane(&self) -> PaneId {
+        PaneId::Plugin(get_plugin_ids().plugin_id)
+    }
+
+    fn own_pane_is_focused(&self, manifest: &PaneManifest) -> Option<bool> {
+        let me = get_plugin_ids().plugin_id;
+        manifest
+            .panes
+            .values()
+            .flatten()
+            .find(|pane| pane.is_plugin && pane.id == me)
+            .map(|pane| pane.is_focused)
+    }
+
+    fn apply_geometry(&self, geometry: Geometry) {
+        let Some(coordinates) = FloatingPaneCoordinates::new(
+            Some(format!("{}%", geometry.x)),
+            Some(format!("{}%", geometry.y)),
+            Some(format!("{}%", geometry.width)),
+            Some(format!("{}%", geometry.height)),
+            None,
+            None,
+        ) else {
+            eprintln!("tab-notes: could not build the pane coordinates");
+            return;
+        };
+        change_floating_panes_coordinates(vec![(self.own_pane(), coordinates)]);
+    }
+
     fn has_note(&self) -> bool {
         self.content.as_ref().is_some_and(|c| !c.trim().is_empty())
     }
@@ -208,6 +280,14 @@ impl Modal {
             // what lets the modal show the edited note instead of disappearing.
             BareKey::Char('e') if self.tab.is_some() => {
                 self.open_editor();
+                true
+            }
+            // Shrinks to a pinned corner box that stays readable while you work
+            // elsewhere. Ctrl t, a brings it back to full size.
+            BareKey::Char('m') if !self.size.is_minimized() => {
+                self.size = Size::minimized();
+                self.apply_geometry(MINIMIZED);
+                set_floating_pane_pinned(self.own_pane(), true);
                 true
             }
             BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
@@ -271,7 +351,13 @@ impl Modal {
         };
         print_text_with_coordinates(Text::new(&title).color_range(2, ..), 0, 0, Some(cols), None);
 
-        let body_rows = rows.saturating_sub(3);
+        // Minimised there is no room to spend on a key list, and the keys it would
+        // advertise need focus anyway.
+        let body_rows = if self.size.is_minimized() {
+            rows.saturating_sub(2)
+        } else {
+            rows.saturating_sub(3)
+        };
         match &self.content {
             Some(content) if self.has_note() => {
                 let lines = markdown::wrap(&markdown::render(content), cols);
@@ -289,10 +375,14 @@ impl Modal {
             }
         }
 
+        if self.size.is_minimized() {
+            return;
+        }
+
         let footer = match (&self.status, self.confirming_delete) {
             (_, true) => "delete this note? y/n".to_string(),
             (Some(status), _) => status.clone(),
-            _ => "e edit · d delete · j/k scroll · Esc close".to_string(),
+            _ => "e edit · d delete · m minimise · j/k scroll · Esc close".to_string(),
         };
         print_text_with_coordinates(
             Text::new(footer).dim_all(),
