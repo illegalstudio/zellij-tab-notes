@@ -50,6 +50,9 @@ pub struct Modal {
     /// The geometry to go back to, as last seen while expanded.
     expanded: Option<Geometry>,
     focused: bool,
+    /// The tiled pane to hand focus back to, and the tab it lives in.
+    tab_position: Option<usize>,
+    terminal_pane: Option<u32>,
 }
 
 impl Modal {
@@ -65,6 +68,8 @@ impl Modal {
             minimized: false,
             expanded: None,
             focused: false,
+            tab_position: None,
+            terminal_pane: None,
         }
     }
 
@@ -106,6 +111,7 @@ impl Modal {
                 let Some(active) = tabs.iter().find(|tab| tab.active) else {
                     return false;
                 };
+                self.tab_position = Some(active.position);
                 let clean = strip_icon(&active.name, &config.icon).to_string();
                 if self.tab.as_deref() != Some(clean.as_str()) {
                     self.tab = Some(clean);
@@ -196,6 +202,19 @@ impl Modal {
                         height: pane.pane_rows,
                         percent: false,
                     });
+                }
+                // Zellij tracks tiled focus separately from floating focus, so the tiled
+                // pane still flagged focused is the one the user came from. Fall back to
+                // the first usable terminal in the tab.
+                if let Some(panes) = self.tab_position.and_then(|pos| manifest.panes.get(&pos)) {
+                    let usable = |pane: &&PaneInfo| {
+                        !pane.is_plugin && !pane.is_floating && pane.is_selectable && !pane.exited
+                    };
+                    self.terminal_pane = panes
+                        .iter()
+                        .find(|pane| usable(pane) && pane.is_focused)
+                        .or_else(|| panes.iter().find(usable))
+                        .map(|pane| pane.id);
                 }
                 // Minimised, the key hints are only worth their row while the box can
                 // actually receive those keys.
@@ -315,7 +334,13 @@ impl Modal {
             // Hands focus back so you can keep working, leaving the box where it is —
             // pinned and minimised, it stays readable from the terminal.
             BareKey::Char('f') => {
-                focus_previous_pane();
+                // focus_previous_pane only cycles the tiled focus and cannot move focus
+                // out of a floating pane. Focusing a pane by id does, and it hides the
+                // floating panes — which leaves a pinned box on screen, since Zellij
+                // renders floating panes when any of them is pinned.
+                if let Some(id) = self.terminal_pane {
+                    focus_terminal_pane(id, false, false);
+                }
                 false
             }
             BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
