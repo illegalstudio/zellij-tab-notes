@@ -110,8 +110,8 @@ Run once after any change to the watcher or the modal.
     a position-based rename would break.
 12. `m` in the modal → it shrinks to a pinned box in the top-right corner, stays
     readable, and stays on top while you move around other panes. `Ctrl t` `a` focuses
-    it again and `m` restores the full size. Note that expanding restores *this
-    plugin's* size, not whatever Zellij picked originally.
+    it again and `m` restores the full size — the exact size and position it had, which
+    the modal records from pane updates while it is expanded.
 13. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
     the icon with its slash intact.
 

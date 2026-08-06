@@ -15,13 +15,19 @@ struct Geometry {
     y: usize,
     width: usize,
     height: usize,
+    /// Percentages of the screen when true, terminal cells when false.
+    percent: bool,
 }
 
-const EXPANDED: Geometry = Geometry {
+/// Only used until the modal has seen its own geometry — from then on it restores the
+/// exact size it had, because a guessed percentage is visibly not the size Zellij gave
+/// it.
+const EXPANDED_FALLBACK: Geometry = Geometry {
     x: 10,
     y: 10,
     width: 80,
     height: 70,
+    percent: true,
 };
 
 const MINIMIZED: Geometry = Geometry {
@@ -29,6 +35,7 @@ const MINIMIZED: Geometry = Geometry {
     y: 0,
     width: 28,
     height: 32,
+    percent: true,
 };
 
 pub struct Modal {
@@ -40,6 +47,8 @@ pub struct Modal {
     scroll: usize,
     confirming_delete: bool,
     minimized: bool,
+    /// The geometry to go back to, as last seen while expanded.
+    expanded: Option<Geometry>,
 }
 
 impl Modal {
@@ -53,6 +62,7 @@ impl Modal {
             scroll: 0,
             confirming_delete: false,
             minimized: false,
+            expanded: None,
         }
     }
 
@@ -63,6 +73,7 @@ impl Modal {
             EventType::TabUpdate,
             EventType::RunCommandResult,
             EventType::EditPaneExited,
+            EventType::PaneUpdate,
             EventType::Key,
         ]);
     }
@@ -162,6 +173,29 @@ impl Modal {
                 self.status = None;
                 true
             }
+            // Remembering the real geometry is the only way to restore it: a plugin
+            // cannot read its own coordinates on demand, and a guessed percentage comes
+            // back visibly the wrong size.
+            Event::PaneUpdate(manifest) => {
+                if !self.minimized {
+                    let me = get_plugin_ids().plugin_id;
+                    if let Some(pane) = manifest
+                        .panes
+                        .values()
+                        .flatten()
+                        .find(|pane| pane.is_plugin && pane.id == me)
+                    {
+                        self.expanded = Some(Geometry {
+                            x: pane.pane_x,
+                            y: pane.pane_y,
+                            width: pane.pane_columns,
+                            height: pane.pane_rows,
+                            percent: false,
+                        });
+                    }
+                }
+                false
+            }
             Event::Key(key) => self.on_key(key),
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 self.config = Err(
@@ -207,11 +241,12 @@ impl Modal {
     }
 
     fn apply_geometry(&self, geometry: Geometry) {
+        let unit = if geometry.percent { "%" } else { "" };
         let Some(coordinates) = FloatingPaneCoordinates::new(
-            Some(format!("{}%", geometry.x)),
-            Some(format!("{}%", geometry.y)),
-            Some(format!("{}%", geometry.width)),
-            Some(format!("{}%", geometry.height)),
+            Some(format!("{}{unit}", geometry.x)),
+            Some(format!("{}{unit}", geometry.y)),
+            Some(format!("{}{unit}", geometry.width)),
+            Some(format!("{}{unit}", geometry.height)),
             None,
             None,
         ) else {
@@ -266,7 +301,7 @@ impl Modal {
                 } else {
                     // Unpin first: a pinned pane may well ignore a coordinate change.
                     set_floating_pane_pinned(self.own_pane(), false);
-                    self.apply_geometry(EXPANDED);
+                    self.apply_geometry(self.expanded.unwrap_or(EXPANDED_FALLBACK));
                 }
                 true
             }
