@@ -83,7 +83,8 @@ bind "a" { LaunchOrFocusPlugin "tab-notes" { floating true; move_to_focused_tab 
 ## Usage
 
 `Ctrl t` then `a` (annotate) opens the note for the current tab. `e` edits it in
-`$EDITOR`, `d` deletes it, `m` minimises it, `j`/`k` scroll, `Esc` closes.
+`$EDITOR`, `d` deletes it, `m` minimises it, `f` hands focus back to the terminal,
+`j`/`k` scroll, `Esc` closes.
 
 The binding must end with `SwitchToMode "normal"`. Zellij routes keys to the active
 mode's bindings, so a client left in tab mode never delivers `e`, `d` or `j` to the
@@ -111,8 +112,12 @@ Run once after any change to the watcher or the modal.
 12. `m` in the modal → it shrinks to a pinned box in the top-right corner, stays
     readable, and stays on top while you move around other panes. `Ctrl t` `a` focuses
     it again and `m` restores the full size — the exact size and position it had, which
-    the modal records from pane updates while it is expanded.
-13. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
+    the modal records from pane updates while it is expanded. While minimised the key
+    hints appear only when the box has focus, since that is the only time those keys
+    reach it.
+13. `f` in the modal → focus returns to the pane you were working in and the box stays
+    put, minimised and pinned if that is how you left it.
+14. Rename a tab to `feature/login` → the note file is `feature-login.md` and the tab shows
     the icon with its slash intact.
 
 ## Releasing

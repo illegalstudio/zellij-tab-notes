@@ -49,6 +49,7 @@ pub struct Modal {
     minimized: bool,
     /// The geometry to go back to, as last seen while expanded.
     expanded: Option<Geometry>,
+    focused: bool,
 }
 
 impl Modal {
@@ -63,6 +64,7 @@ impl Modal {
             confirming_delete: false,
             minimized: false,
             expanded: None,
+            focused: false,
         }
     }
 
@@ -177,24 +179,29 @@ impl Modal {
             // cannot read its own coordinates on demand, and a guessed percentage comes
             // back visibly the wrong size.
             Event::PaneUpdate(manifest) => {
+                let me = get_plugin_ids().plugin_id;
+                let Some(pane) = manifest
+                    .panes
+                    .values()
+                    .flatten()
+                    .find(|pane| pane.is_plugin && pane.id == me)
+                else {
+                    return false;
+                };
                 if !self.minimized {
-                    let me = get_plugin_ids().plugin_id;
-                    if let Some(pane) = manifest
-                        .panes
-                        .values()
-                        .flatten()
-                        .find(|pane| pane.is_plugin && pane.id == me)
-                    {
-                        self.expanded = Some(Geometry {
-                            x: pane.pane_x,
-                            y: pane.pane_y,
-                            width: pane.pane_columns,
-                            height: pane.pane_rows,
-                            percent: false,
-                        });
-                    }
+                    self.expanded = Some(Geometry {
+                        x: pane.pane_x,
+                        y: pane.pane_y,
+                        width: pane.pane_columns,
+                        height: pane.pane_rows,
+                        percent: false,
+                    });
                 }
-                false
+                // Minimised, the key hints are only worth their row while the box can
+                // actually receive those keys.
+                let changed = self.focused != pane.is_focused;
+                self.focused = pane.is_focused;
+                changed
             }
             Event::Key(key) => self.on_key(key),
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
@@ -305,6 +312,12 @@ impl Modal {
                 }
                 true
             }
+            // Hands focus back so you can keep working, leaving the box where it is —
+            // pinned and minimised, it stays readable from the terminal.
+            BareKey::Char('f') => {
+                focus_previous_pane();
+                false
+            }
             BareKey::Char('d') if self.has_note() && !self.confirming_delete => {
                 self.confirming_delete = true;
                 true
@@ -368,7 +381,7 @@ impl Modal {
 
         // Minimised there is no room to spend on a key list, and the keys it would
         // advertise need focus anyway.
-        let body_rows = if self.minimized {
+        let body_rows = if self.minimized && !self.focused {
             rows.saturating_sub(2)
         } else {
             rows.saturating_sub(3)
@@ -390,14 +403,15 @@ impl Modal {
             }
         }
 
-        if self.minimized {
+        if self.minimized && !self.focused {
             return;
         }
 
         let footer = match (&self.status, self.confirming_delete) {
             (_, true) => "delete this note? y/n".to_string(),
             (Some(status), _) => status.clone(),
-            _ => "e edit · d delete · m minimise · j/k scroll · Esc close".to_string(),
+            _ if self.minimized => "m restore · f terminal".to_string(),
+            _ => "e edit · d delete · m minimise · f terminal · j/k scroll · Esc close".to_string(),
         };
         print_text_with_coordinates(
             Text::new(footer).dim_all(),
