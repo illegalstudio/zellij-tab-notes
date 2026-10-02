@@ -1,3 +1,26 @@
+pub const LIST_NOTES: &str = r#"
+set -eu
+# No note has been saved yet. A missing directory is an empty inventory.
+if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+    # A denied ancestor must not masquerade as a missing notes directory.
+    parent=${1%/*}
+    while [ ! -e "$parent" ] && [ ! -L "$parent" ]; do
+        parent=${parent%/*}
+        [ -n "$parent" ] || parent=/
+    done
+    [ -d "$parent" ] && [ -x "$parent" ] || exit 1
+    exit 0
+fi
+[ -d "$1" ] && [ -r "$1" ] && [ -x "$1" ] || exit 1
+for note in "$1"/*.md; do
+    [ -e "$note" ] || [ -L "$note" ] || continue
+    printf 'P%s\n' "$note"
+    if [ -f "$note" ] && [ ! -L "$note" ] && [ -s "$note" ]; then
+        printf 'N%s\n' "$note"
+    fi
+done
+"#;
+
 use std::collections::BTreeSet;
 
 /// Parses the stdout of `find <dir> -maxdepth 1 -name '*.md' -size +0c` into the set of

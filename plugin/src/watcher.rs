@@ -10,8 +10,15 @@ pub struct Watcher {
     config: Result<Config, String>,
     reconciler: Option<Reconciler>,
     session: Option<String>,
+    requested_session: Option<String>,
+    migrating: bool,
+    pending_moves: usize,
+    permitted: bool,
+    namespace_conflict: bool,
+    move_failed: bool,
     tabs: Vec<TabView>,
     notes: BTreeSet<String>,
+    occupied: BTreeSet<String>,
     /// Whether a listing has ever completed. Until it has, `notes` is empty because
     /// nothing has been read yet — not because no tab has a note — and acting on it
     /// would strip the icon off every tab a previous session had decorated, only to
@@ -29,8 +36,15 @@ impl Watcher {
             config,
             reconciler,
             session: None,
+            requested_session: None,
+            migrating: false,
+            pending_moves: 0,
+            permitted: false,
+            namespace_conflict: false,
+            move_failed: false,
             tabs: Vec::new(),
             notes: BTreeSet::new(),
+            occupied: BTreeSet::new(),
             listed_once: false,
         }
     }
@@ -45,15 +59,25 @@ impl Watcher {
     }
 
     pub fn update(&mut self, event: Event) -> bool {
-        let Ok(config) = self.config.clone() else {
+        if self.config.is_err() {
             return false;
-        };
+        }
         match event {
             Event::SessionUpdate(sessions, _) => {
                 if let Some(current) = sessions.iter().find(|s| s.is_current_session) {
-                    if self.session.as_deref() != Some(current.name.as_str()) {
-                        self.session = Some(current.name.clone());
-                        fs_ops::ensure_dir(&session_dir(&config.notes_dir, &current.name));
+                    let config = self.config.as_ref().unwrap();
+                    let conflict = sessions.iter().any(|other| {
+                        !other.is_current_session
+                            && session_dir(&config.notes_dir, &other.name)
+                                == session_dir(&config.notes_dir, &current.name)
+                    });
+                    if self.requested_session.as_ref() != Some(&current.name)
+                        || conflict != self.namespace_conflict
+                    {
+                        self.move_failed = false;
+                        self.namespace_conflict = conflict;
+                        self.requested_session = Some(current.name.clone());
+                        self.sync_session();
                     }
                 }
             }
@@ -65,21 +89,18 @@ impl Watcher {
                         name: tab.name.clone(),
                     })
                     .collect();
-                self.apply();
+                if self.listed_once {
+                    self.apply();
+                } else {
+                    self.refresh();
+                }
             }
             Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                 self.on_command_result(exit_code, stdout, stderr, context);
             }
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
-                // `ensure_dir` is the head of the only chain that populates `notes`,
-                // and it runs once, when the session name first becomes known. If the
-                // grant lands after that, the command was refused, no result ever
-                // arrived, and the watcher would list nothing for the rest of the
-                // session. Re-arm the chain now that commands are allowed.
-                if let Some(session) = self.session.clone() {
-                    fs_ops::ensure_dir(&session_dir(&config.notes_dir, &session));
-                    self.refresh();
-                }
+                self.permitted = true;
+                self.sync_session();
             }
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
                 // Reuse the "not configured" inert path rather than adding a second flag:
@@ -101,16 +122,59 @@ impl Watcher {
     ) {
         match fs_ops::op_of(&context) {
             Some(fs_ops::OP_ENSURE_DIR) => self.refresh(),
+            Some(fs_ops::OP_MIGRATE) => {
+                self.migrating = false;
+                if exit_code != Some(0) {
+                    eprintln!(
+                        "tab-notes: session migration failed: {}",
+                        String::from_utf8_lossy(&stderr)
+                    );
+                    if let Some(session) = context.get(fs_ops::SESSION_KEY) {
+                        pipe_message_to_plugin(
+                            MessageToPlugin::new(fs_ops::SESSION_FAILED)
+                                .with_payload(session.clone()),
+                        );
+                    }
+                    return;
+                }
+                self.session = context.get(fs_ops::SESSION_KEY).cloned();
+                self.sync_session();
+            }
             Some(fs_ops::OP_LIST) => {
-                // A non-zero exit means the directory does not exist yet: no notes.
+                if self.migrating
+                    || self.pending_moves > 0
+                    || context.get(fs_ops::SESSION_KEY) != self.session.as_ref()
+                {
+                    return;
+                }
+                // Never publish a ready note path from an unsuccessful inventory.
                 self.notes = if exit_code == Some(0) {
-                    parse_note_listing(&String::from_utf8_lossy(&stdout))
+                    let output = String::from_utf8_lossy(&stdout);
+                    self.occupied = parse_note_listing(
+                        &output
+                            .lines()
+                            .filter_map(|l| l.strip_prefix('P'))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
+                    parse_note_listing(
+                        &output
+                            .lines()
+                            .filter_map(|l| l.strip_prefix('N'))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )
                 } else {
                     eprintln!(
                         "tab-notes: listing failed: {}",
                         String::from_utf8_lossy(&stderr)
                     );
-                    BTreeSet::new()
+                    self.listed_once = false;
+                    pipe_message_to_plugin(
+                        MessageToPlugin::new(fs_ops::LIST_FAILED)
+                            .with_payload(self.requested_session.clone().unwrap_or_default()),
+                    );
+                    return;
                 };
                 self.listed_once = true;
                 self.apply();
@@ -122,7 +186,23 @@ impl Watcher {
                         String::from_utf8_lossy(&stderr)
                     );
                 }
-                self.refresh();
+                if op == fs_ops::OP_MOVE {
+                    if exit_code != Some(0) {
+                        if let (Some(reconciler), Some(id), Some(key)) = (
+                            self.reconciler.as_mut(),
+                            context.get(fs_ops::TAB_KEY).and_then(|id| id.parse().ok()),
+                            context.get("from_key"),
+                        ) {
+                            reconciler.restore_note_key(id, key.clone());
+                        }
+                    }
+                    self.listed_once = false;
+                    self.pending_moves = self.pending_moves.saturating_sub(1);
+                    if exit_code != Some(0) && exit_code != Some(17) {
+                        self.move_failed = true;
+                    }
+                }
+                self.sync_session();
             }
             // `find … -size 0c -delete` exits non-zero when the file was never
             // created, which is the routine "opened a note and quit without saving"
@@ -132,19 +212,65 @@ impl Watcher {
         }
     }
 
+    // Only one migration runs at a time. If another rename arrives while it is
+    // running, finish the current move before migrating to the latest name.
+    fn sync_session(&mut self) {
+        if !self.permitted || self.migrating || self.pending_moves > 0 {
+            return;
+        }
+        let (Ok(config), Some(requested)) = (&self.config, &self.requested_session) else {
+            return;
+        };
+        if self.namespace_conflict || self.move_failed {
+            pipe_message_to_plugin(
+                MessageToPlugin::new(fs_ops::SESSION_FAILED).with_payload(requested.clone()),
+            );
+            return;
+        }
+        match &self.session {
+            Some(current) if current != requested => {
+                self.migrating = true;
+                self.listed_once = false;
+                fs_ops::migrate_session(
+                    &session_dir(&config.notes_dir, current),
+                    &session_dir(&config.notes_dir, requested),
+                    requested,
+                );
+            }
+            None => {
+                self.session = Some(requested.clone());
+                fs_ops::ensure_dir(&session_dir(&config.notes_dir, requested));
+            }
+            _ => self.refresh(),
+        }
+    }
+
     /// Re-reads the notes directory. Everything downstream flows from the result.
     pub fn refresh(&mut self) {
         let (Ok(config), Some(session)) = (self.config.as_ref(), self.session.as_ref()) else {
             return;
         };
-        fs_ops::list_notes(&session_dir(&config.notes_dir, session));
+        if self.move_failed
+            || self.namespace_conflict
+            || self.migrating
+            || self.session != self.requested_session
+        {
+            return;
+        }
+        fs_ops::list_notes(&session_dir(&config.notes_dir, session), session);
     }
 
     fn apply(&mut self) {
         // An empty `notes` before the first listing means "not known yet", not "no
         // notes": reconciling against it would strip every icon, then restore it when
         // the listing arrives.
-        if !self.listed_once {
+        if self.move_failed
+            || self.namespace_conflict
+            || !self.listed_once
+            || self.migrating
+            || self.pending_moves > 0
+            || self.session != self.requested_session
+        {
             return;
         }
         let (Ok(config), Some(session), Some(reconciler)) = (
@@ -154,17 +280,38 @@ impl Watcher {
         ) else {
             return;
         };
-        for action in reconciler.reconcile(&self.tabs, &mut self.notes) {
+        let actions =
+            reconciler.reconcile_with_occupied(&self.tabs, &mut self.notes, &self.occupied);
+        if actions.is_empty() {
+            for tab in &self.tabs {
+                let path = tab_notes_core::paths::note_path(
+                    &config.notes_dir,
+                    session,
+                    tab_notes_core::icon::strip_icon(&tab.name, &config.icon),
+                );
+                pipe_message_to_plugin(
+                    MessageToPlugin::new(fs_ops::SESSION_READY)
+                        .with_payload(path.to_string_lossy().into_owned())
+                        .with_args(fs_ops::context_with_tab("ready", &tab.id.to_string())),
+                );
+            }
+        }
+        for action in actions {
             match action {
                 // `rename_tab` takes a 1-based position and subtracts one internally;
                 // `rename_tab_with_id` looks the tab up directly, with no arithmetic.
                 Action::RenameTab { id, name } => rename_tab_with_id(id as u64, &name),
                 // Both endpoints are already note keys: sanitizing them again is not
                 // a no-op and would point the move at a different file.
-                Action::MoveNote { from, to } => fs_ops::move_note(
-                    &note_path_from_key(&config.notes_dir, session, &from),
-                    &note_path_from_key(&config.notes_dir, session, &to),
-                ),
+                Action::MoveNote { id, from, to } => {
+                    self.pending_moves += 1;
+                    fs_ops::move_note(
+                        &note_path_from_key(&config.notes_dir, session, &from),
+                        &note_path_from_key(&config.notes_dir, session, &to),
+                        id,
+                        &from,
+                    );
+                }
             }
         }
     }
@@ -178,7 +325,8 @@ impl Watcher {
             return false;
         }
         if pipe_message.name == "tab-notes:notes-changed" {
-            self.refresh();
+            self.move_failed = false;
+            self.sync_session();
         }
         false
     }
