@@ -37,12 +37,12 @@ nothing to build:
 
 ```kdl
 plugins {
-    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.1/tab-notes.wasm" {
+    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.2/tab-notes.wasm" {
         role "modal"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
     }
-    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.1/tab-notes.wasm" {
+    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.2/tab-notes.wasm" {
         role "watcher"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
@@ -50,7 +50,7 @@ plugins {
 }
 ```
 
-> **Choose your version.** The snippet above pins `v0.2.1` as an example. Replace it
+> **Choose your version.** The snippet above pins `v0.2.2` as an example. Replace it
 > with the release you want to run and verify that it exists on the
 > [releases page](https://github.com/illegalstudio/zellij-tab-notes/releases); the
 > version shown here may not be the latest available. Keep a fixed release URL rather
