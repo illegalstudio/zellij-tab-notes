@@ -91,6 +91,27 @@ load_plugins {{ tab-notes-watcher; }}
         wait_for(lambda: "📝" in action("list-tabs", "--json"), "initial note marker")
         action("launch-plugin", "--floating", "--configuration", f"role=modal,notes_dir={notes}", url)
         wait_for(lambda: b"REVIEW_CONTEXT_8444" in screen, "initial modal content")
+        # A settled watcher refresh must not dismiss the deletion status.
+        os.write(master, b"d")
+        wait_for(lambda: "delete this note?" in action("dump-screen"), "delete confirmation")
+        os.write(master, b"y")
+        wait_for(lambda: "note deleted" in action("dump-screen"), "deletion status")
+        action("pipe", "--name", "tab-notes:notes-changed", "refresh")
+        time.sleep(0.5)
+        assert "note deleted" in action("dump-screen"), "idle READY cleared status"
+        (notes / "scratch" / "review.md").write_text("REVIEW_CONTEXT_8444\n")
+        os.write(master, b"r")
+        wait_for(lambda: "REVIEW_CONTEXT_8444" in action("dump-screen"), "explicit refresh")
+        # A failed inventory is distinct from a migration conflict and can retry
+        # without changing the session name.
+        (notes / "scratch").rename(notes / "saved")
+        (notes / "scratch").write_text("not a directory")
+        action("pipe", "--name", "tab-notes:notes-changed", "refresh")
+        wait_for(lambda: "could not list notes" in action("dump-screen"), "listing error")
+        (notes / "scratch").unlink()
+        (notes / "saved").rename(notes / "scratch")
+        os.write(master, b"r")
+        wait_for(lambda: "REVIEW_CONTEXT_8444" in action("dump-screen"), "listing retry")
         screen.clear()
         action("rename-session", "target")
         session = "target"
@@ -135,7 +156,7 @@ load_plugins {{ tab-notes-watcher; }}
         action("new-tab", "--name", "feature/login")
         action("new-tab", "--name", "feature-login")
         wait_for(lambda: "feature-login (2)" in action("list-tabs", "--json"), "sanitized collision")
-        print("PASS: session conflict refusal/recovery, modal refresh, duplicate tabs, incoming rename, sanitized names")
+        print("PASS: idle modal status, listing error/retry, session conflict refusal/recovery, modal refresh, duplicate tabs, incoming rename, sanitized names")
     finally:
         for name in ("scratch", "target", "review-task", "intermediate", "final"):
             subprocess.run(["zellij", "delete-session", "--force", name], env=env,

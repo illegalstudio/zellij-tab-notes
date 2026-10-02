@@ -16,6 +16,7 @@ pub const OP_CLEANUP: &str = "cleanup";
 pub const SESSION_KEY: &str = "tab_notes_session";
 pub const OP_MIGRATE: &str = "migrate_session";
 pub const SESSION_FAILED: &str = "tab-notes:session-failed";
+pub const LIST_FAILED: &str = "tab-notes:list-failed";
 pub const SESSION_READY: &str = "tab-notes:session-ready";
 pub const OP_EDIT: &str = "edit";
 
@@ -49,17 +50,7 @@ pub fn list_notes(dir: &Path, session: &str) {
         &[
             "sh",
             "-c",
-            r#"
-set -eu
-[ -d "$1" ]
-for note in "$1"/*.md; do
-    [ -e "$note" ] || [ -L "$note" ] || continue
-    printf 'P%s\n' "$note"
-    if [ -f "$note" ] && [ ! -L "$note" ] && [ -s "$note" ]; then
-        printf 'N%s\n' "$note"
-    fi
-done
-"#,
+            tab_notes_core::listing::LIST_NOTES,
             "tab-notes-list",
             &dir.to_string_lossy(),
         ],

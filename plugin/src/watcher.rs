@@ -89,7 +89,11 @@ impl Watcher {
                         name: tab.name.clone(),
                     })
                     .collect();
-                self.apply();
+                if self.listed_once {
+                    self.apply();
+                } else {
+                    self.refresh();
+                }
             }
             Event::RunCommandResult(exit_code, stdout, stderr, context) => {
                 self.on_command_result(exit_code, stdout, stderr, context);
@@ -167,7 +171,7 @@ impl Watcher {
                     );
                     self.listed_once = false;
                     pipe_message_to_plugin(
-                        MessageToPlugin::new(fs_ops::SESSION_FAILED)
+                        MessageToPlugin::new(fs_ops::LIST_FAILED)
                             .with_payload(self.requested_session.clone().unwrap_or_default()),
                     );
                     return;

@@ -292,6 +292,7 @@ impl Modal {
 
     pub fn pipe(&mut self, message: PipeMessage) -> bool {
         if message.name == fs_ops::SESSION_READY
+            && self.waiting_for_migration
             && message
                 .args
                 .get(fs_ops::TAB_KEY)
@@ -304,15 +305,19 @@ impl Modal {
             self.read_note();
             return true;
         }
-        if message.name == fs_ops::SESSION_FAILED
-            && message.payload.as_ref() == self.session.as_ref()
+        if matches!(
+            message.name.as_str(),
+            fs_ops::SESSION_FAILED | fs_ops::LIST_FAILED
+        ) && message.payload.as_ref() == self.session.as_ref()
         {
             self.waiting_for_migration = true;
             self.content = None;
-            self.status = Some(
+            self.status = Some(if message.name == fs_ops::LIST_FAILED {
+                "could not list notes — refresh with r to retry; see log".to_string()
+            } else {
                 "session notes conflict or move failed — choose another session name; see log"
-                    .to_string(),
-            );
+                    .to_string()
+            });
             return true;
         }
         false
@@ -428,6 +433,11 @@ impl Modal {
             BareKey::Esc | BareKey::Char('q') => {
                 close_self();
                 false
+            }
+            BareKey::Char('r') => {
+                self.waiting_for_migration = true;
+                Self::send_to_watcher("tab-notes:notes-changed", None);
+                true
             }
             BareKey::Char('j') | BareKey::Down => {
                 self.scroll = self.scroll.saturating_add(1);

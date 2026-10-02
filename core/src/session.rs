@@ -15,11 +15,35 @@ for target in "$2"/*.md; do
     fi
 done
 [ -d "$1" ] || exit 0
-for note in "$1"/*.md; do
+source=$1
+destination=$2
+set --
+rollback() {
+    result=$?
+    trap - EXIT HUP INT TERM
+    [ "$result" -ne 0 ] || return 0
+    for moved do
+        original="$source/${moved##*/}"
+        # An editor may have recreated the old path. Never overwrite it.
+        if [ -e "$original" ] || [ -L "$original" ]; then
+            printf 'Rollback blocked; recover note from %s\n' "$moved" >&2
+        elif ! mv -n "$moved" "$original" || [ -e "$moved" ] || [ -L "$moved" ]; then
+            printf 'Rollback failed; recover note from %s\n' "$moved" >&2
+        fi
+    done
+    exit "$result"
+}
+trap 'rollback "$@"' EXIT
+trap 'exit 1' HUP INT TERM
+for note in "$source"/*.md; do
     [ -f "$note" ] && [ ! -L "$note" ] || continue
-    target="$2/${note##*/}"
+    target="$destination/${note##*/}"
     [ ! -e "$target" ] && [ ! -L "$target" ] || exit 1
-    mv -n "$note" "$2/"
+    if mv -n "$note" "$target"; then
+        set -- "$@" "$target"
+    else
+        exit 1
+    fi
     [ ! -e "$note" ] || exit 1
 done
 "#;
@@ -61,6 +85,127 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+
+    #[test]
+    fn partial_failure_rolls_back_and_can_retry() {
+        use std::os::unix::fs::PermissionsExt;
+        let n = Notes::new();
+        fs::create_dir(n.0.join("old")).unwrap();
+        fs::create_dir(n.0.join("bin")).unwrap();
+        for name in ["a.md", "b.md"] {
+            fs::write(n.0.join("old").join(name), name).unwrap();
+        }
+        // Fail the second forward move, but let rollback use the real mv.
+        let real_mv = Command::new("sh")
+            .args(["-c", "command -v mv"])
+            .output()
+            .unwrap();
+        let real_mv = String::from_utf8(real_mv.stdout).unwrap();
+        fs::write(
+            n.0.join("bin/mv"),
+            format!(
+                "#!/bin/sh\ncase \"$2\" in */old/b.md) exit 1;; esac\nexec {} \"$@\"\n",
+                real_mv.trim()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(n.0.join("bin/mv"), fs::Permissions::from_mode(0o755)).unwrap();
+        let status = Command::new("sh")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    n.0.join("bin").display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .args(["-c", MIGRATE_NOTES, "migration-test"])
+            .arg(n.0.join("old"))
+            .arg(n.0.join("new"))
+            .status()
+            .unwrap();
+        assert!(!status.success());
+        for name in ["a.md", "b.md"] {
+            assert_eq!(
+                fs::read_to_string(n.0.join("old").join(name)).unwrap(),
+                name
+            );
+            assert!(!n.0.join("new").join(name).exists());
+        }
+        assert!(n.migrate("old", "new"));
+        assert_eq!(fs::read_dir(n.0.join("new")).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn rollback_preserves_an_editor_save_and_reports_recovery_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let n = Notes::new();
+        fs::create_dir(n.0.join("old")).unwrap();
+        fs::create_dir(n.0.join("bin")).unwrap();
+        for name in ["a.md", "b.md"] {
+            fs::write(n.0.join("old").join(name), "original").unwrap();
+        }
+        let real_mv = Command::new("sh")
+            .args(["-c", "command -v mv"])
+            .output()
+            .unwrap();
+        let real_mv = String::from_utf8(real_mv.stdout).unwrap();
+        fs::write(n.0.join("bin/mv"), format!(
+            "#!/bin/sh\ncase \"$2\" in */old/b.md) printf editor > \"${{2%/*}}/a.md\"; exit 1;; esac\nexec {} \"$@\"\n", real_mv.trim()
+        )).unwrap();
+        fs::set_permissions(n.0.join("bin/mv"), fs::Permissions::from_mode(0o755)).unwrap();
+        let result = Command::new("sh")
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    n.0.join("bin").display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .args(["-c", MIGRATE_NOTES, "migration-test"])
+            .arg(n.0.join("old"))
+            .arg(n.0.join("new"))
+            .output()
+            .unwrap();
+        assert!(!result.status.success());
+        assert_eq!(fs::read_to_string(n.0.join("old/a.md")).unwrap(), "editor");
+        assert_eq!(
+            fs::read_to_string(n.0.join("new/a.md")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            fs::read_to_string(n.0.join("old/b.md")).unwrap(),
+            "original"
+        );
+        assert!(String::from_utf8(result.stderr).unwrap().contains(&format!(
+            "recover note from {}",
+            n.0.join("new/a.md").display()
+        )));
+    }
+
+    #[test]
+    fn listing_failure_is_retryable_and_missing_directory_is_empty() {
+        let n = Notes::new();
+        let list = || {
+            Command::new("sh")
+                .args(["-c", crate::listing::LIST_NOTES, "listing-test"])
+                .arg(n.0.join("notes"))
+                .output()
+                .unwrap()
+        };
+        let missing = list();
+        assert!(missing.status.success());
+        assert!(missing.stdout.is_empty());
+        fs::write(n.0.join("notes"), "not a directory").unwrap();
+        assert!(!list().status.success());
+        fs::remove_file(n.0.join("notes")).unwrap();
+        fs::create_dir(n.0.join("notes")).unwrap();
+        fs::write(n.0.join("notes/test.md"), "note").unwrap();
+        let retry = list();
+        assert!(retry.status.success());
+        assert!(String::from_utf8(retry.stdout).unwrap().contains("test.md"));
     }
 
     #[test]
