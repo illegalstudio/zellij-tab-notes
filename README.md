@@ -37,12 +37,12 @@ nothing to build:
 
 ```kdl
 plugins {
-    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.0/tab-notes.wasm" {
+    tab-notes location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.1/tab-notes.wasm" {
         role "modal"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
     }
-    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.0/tab-notes.wasm" {
+    tab-notes-watcher location="https://github.com/illegalstudio/zellij-tab-notes/releases/download/v0.2.1/tab-notes.wasm" {
         role "watcher"
         notes_dir "/Users/you/.local/share/zellij-tab-notes"
         icon "📝"
@@ -50,7 +50,7 @@ plugins {
 }
 ```
 
-> **Choose your version.** The snippet above pins `v0.2.0` as an example. Replace it
+> **Choose your version.** The snippet above pins `v0.2.1` as an example. Replace it
 > with the release you want to run and verify that it exists on the
 > [releases page](https://github.com/illegalstudio/zellij-tab-notes/releases); the
 > version shown here may not be the latest available. Keep a fixed release URL rather
@@ -211,14 +211,19 @@ Releases are **tag-driven**: the tag is the version, and the manifest follows it
 is nothing to bump by hand.
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+make release
 ```
 
-The release workflow then derives `0.2.0` from the tag, writes it into
-`[workspace.package]` in the root `Cargo.toml` — both crates inherit from there — runs
-the tests, builds the wasm, publishes the release with `tab-notes.wasm` and its
-`.sha256`, and commits the bump back to `main`.
+The command proposes the next patch version from the latest stable local tag
+(for example, `v0.2.1` becomes `v0.2.2`). Press Enter to accept it or type another
+version, with or without the `v` prefix, then confirm the annotated tag and push to
+`origin`. It requires a clean working tree. `make relese` is an alias.
+
+The release workflow derives the version from the tag, writes it into
+`[workspace.package]` in the root `Cargo.toml` (both crates inherit from there), and
+updates both release URLs and the pinned version in the README installation example.
+It runs the tests, builds the wasm, publishes the release with `tab-notes.wasm` and
+its `.sha256`, and commits the manifest, lockfile and README bump back to `main`.
 
 Two consequences worth knowing:
 

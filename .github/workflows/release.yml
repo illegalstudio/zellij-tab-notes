@@ -35,13 +35,11 @@ jobs:
           echo "VERSION=${version}" >> "$GITHUB_ENV"
           echo "releasing ${version}"
 
-      # The tag is the source of truth: the manifest follows it, not the other way
-      # round. Only [workspace.package] carries a version — both crates inherit it —
-      # so this is the single line to rewrite.
-      - name: Write the version into the manifest
+      # The tag is the source of truth for both crates and the README install URLs.
+      - name: Write the version into the manifest and README
         run: |
           set -euo pipefail
-          perl -0pi -e 's/(\[workspace\.package\]\nversion = ")[^"]*(")/${1}'"$VERSION"'${2}/' Cargo.toml
+          python3 scripts/update-version.py "$VERSION"
           grep -A1 '^\[workspace.package\]' Cargo.toml
 
       # Also refreshes Cargo.lock with the new version, which the commit below picks up.
@@ -74,13 +72,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B main origin/main
-          perl -0pi -e 's/(\[workspace\.package\]\nversion = ")[^"]*(")/${1}'"$VERSION"'${2}/' Cargo.toml
+          python3 scripts/update-version.py "$VERSION"
           cargo test -p tab-notes-core >/dev/null
-          if git diff --quiet -- Cargo.toml Cargo.lock; then
+          if git diff --quiet -- Cargo.toml Cargo.lock README.md; then
             echo "main is already at ${VERSION}, nothing to commit"
             exit 0
           fi
-          git add Cargo.toml Cargo.lock
+          git add Cargo.toml Cargo.lock README.md
           git commit -m "chore: set version ${VERSION}"
           git push origin main
 
